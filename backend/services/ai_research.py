@@ -10,9 +10,12 @@ Supports:
 - Robust JSON extraction with fallback parsing
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import os
+from typing import Optional
 
 import anthropic
 
@@ -20,7 +23,28 @@ from models.one_pager import OnePagerData
 
 logger = logging.getLogger(__name__)
 
+# Support both Anthropic direct and OpenRouter
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+OPENROUTER_BASE_URL = "https://openrouter.ai/api"
+
+def _get_client_and_model():
+    """Get the appropriate client and model based on available API keys."""
+    if OPENROUTER_API_KEY:
+        client = anthropic.Anthropic(
+            api_key=OPENROUTER_API_KEY,
+            base_url=OPENROUTER_BASE_URL,
+        )
+        model = "anthropic/claude-sonnet-4-20250514"
+        return client, model, False  # False = no web search support
+    elif ANTHROPIC_API_KEY:
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        model = "claude-sonnet-4-20250514"
+        return client, model, True  # True = web search supported
+    else:
+        raise ValueError(
+            "No API key set. Set OPENROUTER_API_KEY or ANTHROPIC_API_KEY environment variable."
+        )
 
 # Authoritative financial/business domains for M&A research
 ALLOWED_DOMAINS = [
@@ -70,7 +94,7 @@ def _build_json_schema() -> str:
     return json.dumps(OnePagerData.model_json_schema(), indent=2)
 
 
-def _build_user_prompt(company_name: str, im_text: str | None = None) -> str:
+def _build_user_prompt(company_name: str, im_text: Optional[str] = None) -> str:
     """Build the user prompt for research."""
     context = ""
     if im_text:
@@ -114,7 +138,7 @@ def _build_web_search_tool() -> dict:
 
 def research_company(
     company_name: str,
-    im_text: str | None = None,
+    im_text: Optional[str] = None,
 ) -> OnePagerData:
     """
     Use Claude API with web search to research a company.
@@ -129,12 +153,9 @@ def research_company(
     Returns:
         Populated OnePagerData object with sources list
     """
-    if not ANTHROPIC_API_KEY:
-        raise ValueError(
-            "ANTHROPIC_API_KEY not set. Set the environment variable to use AI research."
-        )
+    client, model, web_search_supported = _get_client_and_model()
 
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    logger.info("Using model %s (web search: %s)", model, web_search_supported)
 
     messages = [
         {
@@ -147,19 +168,25 @@ def research_company(
     citations: list[dict] = []
 
     # Multi-turn loop: Claude may use web_search multiple times
-    max_turns = 15
+    max_turns = 15 if web_search_supported else 1
     response = None
 
     for turn in range(max_turns):
         logger.info("Research turn %d/%d for %s", turn + 1, max_turns, company_name)
 
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=8000,
-            system=RESEARCH_SYSTEM_PROMPT,
-            messages=messages,
-            tools=[web_search_tool],
-        )
+        # Build request kwargs
+        request_kwargs = {
+            "model": model,
+            "max_tokens": 8000,
+            "system": RESEARCH_SYSTEM_PROMPT,
+            "messages": messages,
+        }
+
+        # Only add tools if web search is supported (direct Anthropic API)
+        if web_search_supported:
+            request_kwargs["tools"] = [web_search_tool]
+
+        response = client.messages.create(**request_kwargs)
 
         # Collect citations from response
         _collect_citations(response, citations)

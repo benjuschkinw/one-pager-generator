@@ -1,4 +1,5 @@
 """Research endpoint: AI-powered company research for One-Pager generation."""
+from typing import Optional
 
 from fastapi import APIRouter, File, Form, UploadFile, HTTPException
 
@@ -14,7 +15,7 @@ MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
 @router.post("/research", response_model=OnePagerData)
 async def research(
     company_name: str = Form(...),
-    im_file: UploadFile | None = File(None),
+    im_file: Optional[UploadFile] = File(None),
 ):
     """
     Research a company using AI and optionally extract data from an uploaded IM PDF.
