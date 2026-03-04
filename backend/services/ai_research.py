@@ -57,6 +57,19 @@ def _build_json_schema() -> str:
     return json.dumps(OnePagerData.model_json_schema(), indent=2)
 
 
+def _safe_format(template: str, **kwargs) -> str:
+    """Format a prompt template, gracefully handling missing or extra placeholders."""
+    try:
+        return template.format(**kwargs)
+    except KeyError as e:
+        logger.warning("Prompt template has unrecognized placeholder: %s", e)
+        # Fall back to partial formatting using str.format_map with a default dict
+        class SafeDict(dict):
+            def __missing__(self, key: str) -> str:
+                return "{" + key + "}"
+        return template.format_map(SafeDict(**kwargs))
+
+
 def _build_user_prompt(company_name: str, im_text: Optional[str] = None) -> str:
     """Build the user prompt for research using editable prompt templates."""
     json_schema = _build_json_schema()
@@ -64,14 +77,16 @@ def _build_user_prompt(company_name: str, im_text: Optional[str] = None) -> str:
     if im_text:
         truncated = im_text[:50000] if len(im_text) > 50000 else im_text
         template = get_prompt_template("research_user_with_im")
-        return template.format(
+        return _safe_format(
+            template,
             company_name=company_name,
             im_text=truncated,
             json_schema=json_schema,
         )
     else:
         template = get_prompt_template("research_user_no_im")
-        return template.format(
+        return _safe_format(
+            template,
             company_name=company_name,
             json_schema=json_schema,
         )

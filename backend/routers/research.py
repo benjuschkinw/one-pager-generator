@@ -1,4 +1,5 @@
 """Research endpoint: AI-powered company research for One-Pager generation."""
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, File, Form, UploadFile, HTTPException
@@ -9,6 +10,7 @@ from services.pdf_extractor import extract_text_from_pdf
 from services.verification import verify_research
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
 
@@ -52,8 +54,11 @@ async def research(
 
     try:
         data = research_company(company_name, im_text, provider=provider, model=model)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     except Exception as e:
-        raise HTTPException(500, f"Research failed: {str(e)}")
+        logger.error("Research failed: %s", str(e))
+        raise HTTPException(500, "Research failed. Please check API keys and try again.")
 
     # Cross-verify with a second AI model
     verification = None
@@ -68,7 +73,6 @@ async def research(
             )
         except Exception as e:
             # Verification failure should not block the research result
-            import logging
-            logging.getLogger(__name__).error("Verification failed: %s", str(e))
+            logger.error("Verification failed: %s", str(e))
 
     return ResearchResponse(data=data, verification=verification)

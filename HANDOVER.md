@@ -1,14 +1,14 @@
-# Handover: Editable Prompts, Structured IM Extraction & Model Upgrade
+# Handover: M&A One-Pager Generator
 
 **Branch:** `claude/review-progress-5vIvn`
 **Date:** 2026-03-04
-**Status:** COMPLETE — All changes implemented, ready for testing
+**Status:** IN PROGRESS — Security + maintainability complete, frontend redesign next
 
 ---
 
-## What Changed
+## Completed Changes
 
-### 1. Structured IM Extraction Prompts (Part 1)
+### 1. Structured IM Extraction Prompts
 
 **Problem:** The research prompt gave generic instructions to "extract from the IM." The new prompts provide module-by-module extraction rules mapping IM chapters to One Pager fields.
 
@@ -23,69 +23,40 @@
   - Module 6: Revenue Split (only if explicit breakdown in IM)
   - Module 7: Investment Criteria Evaluation (12 criteria with evidence rules)
   - Module 8: Meta/Status (source, dates)
-- Each module specifies: which IM chapter to look in, what format to output, and what rules to follow
 
-**Files:**
-- `backend/services/prompt_manager.py` — **NEW** (prompt storage + defaults + edit/reset API)
+### 2. Editable Prompts in the UI
 
----
+All 5 AI prompts are editable at runtime via `/api/prompts` REST API and a collapsible UI editor on the input page.
 
-### 2. Editable Prompts in the UI (Part 2)
-
-**Problem:** Prompts were hardcoded. Users couldn't iterate on prompt quality without code changes.
-
-**What was done:**
-
-**Backend:**
-- `backend/services/prompt_manager.py` — Stores 5 prompts as `PromptDefinition` objects with `name`, `description`, `template`, and `is_default` tracking
-- `backend/routers/prompts.py` — **NEW** REST API:
-  - `GET /api/prompts` — List all prompts
-  - `GET /api/prompts/{name}` — Get single prompt
-  - `PUT /api/prompts/{name}` — Update template text
-  - `POST /api/prompts/{name}/reset` — Reset to default
-  - `POST /api/prompts/reset` — Reset all
-- `backend/main.py` — Mounted prompts router
-- `backend/services/ai_research.py` — Now reads prompts via `get_prompt_template()` instead of module constants
-- `backend/services/verification.py` — Same: reads verification prompt from prompt_manager
-
-**Frontend:**
-- `frontend/src/lib/types.ts` — Added `PromptDefinition` interface
-- `frontend/src/lib/api.ts` — Added `getPrompts()`, `updatePrompt()`, `resetPrompt()`, `resetAllPrompts()`
-- `frontend/src/app/components/PromptEditor.tsx` — **NEW** Collapsible prompt editor with:
-  - Accordion-style expand/collapse per prompt
-  - Monospace textarea for editing
-  - Unsaved change tracking with "unsaved" badge
-  - "modified" badge for non-default prompts
-  - Save and Reset to Default buttons per prompt
-  - Reset All to Defaults button
-- `frontend/src/app/page.tsx` — Added gear icon toggle "Edit AI Prompts" below the main form
-
-**Prompt names and their roles:**
-| Name | Description |
+**Prompts:**
+| Name | Placeholders |
 |------|-------------|
-| `research_system` | System prompt for Anthropic (web search enabled) |
-| `research_system_no_search` | System prompt for OpenRouter (no web search) |
-| `research_user_with_im` | User prompt when IM PDF provided. Placeholders: `{company_name}`, `{im_text}`, `{json_schema}` |
-| `research_user_no_im` | User prompt for public research only. Placeholders: `{company_name}`, `{json_schema}` |
-| `verification` | System prompt for the cross-verification model |
+| `research_system` | (none — system prompt with web search) |
+| `research_system_no_search` | (none — system prompt without web search) |
+| `research_user_with_im` | `{company_name}`, `{im_text}`, `{json_schema}` |
+| `research_user_no_im` | `{company_name}`, `{json_schema}` |
+| `verification` | (none — verification system prompt) |
 
----
+### 3. Model Upgrade to Opus 4
 
-### 3. Model Upgrade to Opus (Part 3)
+| Step | Model | Rationale |
+|------|-------|-----------|
+| Research | Claude Opus 4 | Best at thorough document analysis, fewer hallucinations on financial data |
+| Verification | GPT-4.1 (OpenRouter) | Cross-model diversity catches correlated errors |
 
-**Problem:** Default model was Claude Sonnet 4. For complex IM extraction, Opus 4 produces more thorough and accurate results.
+### 4. Security Hardening
 
-**What was done:**
-- `DEFAULT_MODELS["anthropic"]` changed from `claude-sonnet-4-20250514` to `claude-opus-4-20250514`
-- `DEFAULT_MODELS["openrouter"]` changed from `anthropic/claude-sonnet-4` to `anthropic/claude-opus-4`
-- Provider model lists reordered to show Opus first with "(Recommended)" label
-- **Verification stays on GPT-4.1** — cross-model diversity is more important than raw capability for catching errors
+- **Error messages sanitized**: Backend no longer leaks internal exceptions to clients. Errors are logged server-side, clients get generic messages.
+- **Safe prompt formatting**: `_safe_format()` in `ai_research.py` handles missing/extra placeholders gracefully instead of crashing.
+- **Content-Disposition hardened**: Filename quotes escaped to prevent header injection.
+- **Specific exception handling**: `FileNotFoundError` for missing templates, `ValueError` for bad user input — each returns appropriate HTTP status.
 
-**Rationale for model choices:**
-| Step | Model | Why |
-|------|-------|-----|
-| Research (with/without IM) | Claude Opus 4 | Best at careful, thorough document analysis. Less likely to miss financial details in 50+ page IMs. |
-| Verification | GPT-4.1 (OpenRouter) | Different model family catches correlated errors. Strong at structured analysis. |
+### 5. Code Maintainability
+
+- **Moved inline imports**: All `import logging` moved to module-level in routers.
+- **Module-level loggers**: `research.py` and `generate.py` now use module-level `logger` instances.
+- **Fixed broken CSS**: `globals.css` had non-functional `ring: 2px` (Tailwind utility, not CSS property) — replaced with proper `box-shadow`.
+- **Removed unused dependency**: `recharts` removed from `package.json` (never imported).
 
 ---
 
@@ -93,35 +64,31 @@
 
 | File | Status | Description |
 |------|--------|-------------|
-| `backend/services/prompt_manager.py` | NEW | Prompt storage, defaults, get/update/reset |
+| `backend/services/prompt_manager.py` | NEW | Prompt storage, defaults, edit/reset |
 | `backend/routers/prompts.py` | NEW | REST API for prompt CRUD |
-| `backend/services/ai_research.py` | MODIFIED | Uses prompt_manager, defaults to Opus |
-| `backend/services/verification.py` | MODIFIED | Uses prompt_manager for verification prompt |
+| `backend/services/ai_research.py` | MODIFIED | prompt_manager integration, Opus default, safe formatting |
+| `backend/services/verification.py` | MODIFIED | Uses prompt_manager |
+| `backend/routers/research.py` | MODIFIED | Sanitized errors, module-level logger |
+| `backend/routers/generate.py` | MODIFIED | Sanitized errors, filename escaping |
 | `backend/main.py` | MODIFIED | Mounts prompts router |
 | `frontend/src/lib/types.ts` | MODIFIED | Added PromptDefinition type |
 | `frontend/src/lib/api.ts` | MODIFIED | Added prompt API functions |
-| `frontend/src/app/components/PromptEditor.tsx` | NEW | Prompt editor UI component |
+| `frontend/src/app/components/PromptEditor.tsx` | NEW | Prompt editor UI |
 | `frontend/src/app/page.tsx` | MODIFIED | Added prompt editor toggle |
-
----
-
-## Testing Checklist
-
-- [ ] Backend starts without errors (`cd backend && uvicorn main:app`)
-- [ ] `GET /api/prompts` returns 5 prompts
-- [ ] `PUT /api/prompts/research_system` updates the prompt
-- [ ] `POST /api/prompts/research_system/reset` restores default
-- [ ] Frontend builds (`cd frontend && npm run build`)
-- [ ] "Edit AI Prompts" toggle shows/hides prompt editor
-- [ ] Editing a prompt shows "unsaved" badge, saving clears it
-- [ ] Research with IM uses the structured module-by-module extraction
-- [ ] Research without IM uses the public research prompt
-- [ ] Model selector shows Opus as default/recommended
+| `frontend/src/app/globals.css` | MODIFIED | Fixed focus ring CSS |
+| `frontend/package.json` | MODIFIED | Removed unused recharts |
 
 ---
 
 ## Architecture Notes
 
-- Prompts are stored **in-memory** (per process). Restarting the backend resets all prompts to defaults. This is intentional for now — a database-backed store can be added later.
-- Prompt templates use Python `str.format()` placeholders (`{company_name}`, `{im_text}`, `{json_schema}`). Users editing prompts must keep these placeholders intact or the research will fail.
-- The prompt editor is on the input page (not the editor page) because prompts affect research, not PPTX generation.
+- Prompts stored **in-memory** (per process). Restart resets to defaults.
+- Prompt templates use `str.format()` with `_safe_format()` fallback for robustness.
+- Prompt editor is on input page (affects research, not PPTX generation).
+
+---
+
+## Next Steps
+
+- [ ] Professional frontend redesign for Constellation Capital
+- [ ] Verify IM/Teaser upload + LLM pipeline end-to-end

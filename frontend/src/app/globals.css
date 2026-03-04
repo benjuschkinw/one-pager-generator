@@ -12,8 +12,8 @@ input:focus,
 textarea:focus,
 select:focus {
   outline: none;
-  ring: 2px;
-  ring-color: #2E75B6;
+  box-shadow: 0 0 0 2px #2E75B6;
+  border-color: #2E75B6;
 }
 
 /* Criteria toggle buttons */
