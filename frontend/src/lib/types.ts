@@ -84,6 +84,24 @@ export interface OnePagerData {
   investment_criteria: InvestmentCriteria;
 }
 
+export interface FieldFlag {
+  field: string;
+  severity: "error" | "warning" | "info";
+  message: string;
+}
+
+export interface VerificationResult {
+  verified: boolean;
+  confidence: number;
+  flags: FieldFlag[];
+  verifier_model: string;
+}
+
+export interface ResearchResponse {
+  data: OnePagerData;
+  verification: VerificationResult | null;
+}
+
 export const EMPTY_ONE_PAGER: OnePagerData = {
   meta: { source: "", im_received: "", loi_deadline: "", status: "" },
   header: { label: "One Pager", company_name: "", tagline: "" },

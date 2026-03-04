@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { OnePagerData, EMPTY_ONE_PAGER } from "@/lib/types";
+import { OnePagerData, VerificationResult, EMPTY_ONE_PAGER } from "@/lib/types";
 import HeaderSection from "../components/HeaderSection";
 import MetaSection from "../components/MetaSection";
 import KeyFactsSection from "../components/KeyFactsSection";
@@ -12,10 +12,12 @@ import CriteriaSection from "../components/CriteriaSection";
 import RevenueTable from "../components/RevenueTable";
 import FinancialsTable from "../components/FinancialsTable";
 import GenerateButton from "../components/GenerateButton";
+import VerificationBanner from "../components/VerificationBanner";
 
 export default function EditorPage() {
   const router = useRouter();
   const [data, setData] = useState<OnePagerData>(EMPTY_ONE_PAGER);
+  const [verification, setVerification] = useState<VerificationResult | null>(null);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -37,6 +39,15 @@ export default function EditorPage() {
           financials: { ...EMPTY_ONE_PAGER.financials, ...parsed.financials },
           investment_criteria: { ...EMPTY_ONE_PAGER.investment_criteria, ...parsed.investment_criteria },
         });
+      } catch {
+        /* ignore malformed JSON */
+      }
+    }
+    // Load verification result if available
+    const storedVerification = sessionStorage.getItem("verification");
+    if (storedVerification) {
+      try {
+        setVerification(JSON.parse(storedVerification) as VerificationResult);
       } catch {
         /* ignore malformed JSON */
       }
@@ -87,6 +98,9 @@ export default function EditorPage() {
           Export JSON
         </button>
       </div>
+
+      {/* Verification Banner */}
+      {verification && <VerificationBanner verification={verification} />}
 
       {/* 3-column grid matching the slide layout */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

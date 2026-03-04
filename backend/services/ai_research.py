@@ -1,16 +1,15 @@
 """
-AI Research Pipeline: uses Claude API with web search to research a company
+AI Research Pipeline: uses Claude API or OpenRouter to research a company
 and fill the One-Pager data schema.
 
 Supports:
-- Web search with domain filtering for authoritative financial sources
+- Anthropic provider: Claude with web search + domain filtering
+- OpenRouter provider: Any model via OpenAI-compatible API (no web search)
 - PDF extraction from Information Memorandums
-- Multi-turn tool use with pause_turn handling
-- Citation tracking for audit trails
+- Multi-turn tool use with pause_turn handling (Anthropic only)
+- Citation tracking for audit trails (Anthropic only)
 - Robust JSON extraction with fallback parsing
 """
-
-from __future__ import annotations
 
 import json
 import logging
@@ -18,33 +17,20 @@ import os
 from typing import Optional
 
 import anthropic
+from openai import OpenAI
 
 from models.one_pager import OnePagerData
 
 logger = logging.getLogger(__name__)
 
-# Support both Anthropic direct and OpenRouter
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
-OPENROUTER_BASE_URL = "https://openrouter.ai/api"
 
-def _get_client_and_model():
-    """Get the appropriate client and model based on available API keys."""
-    if OPENROUTER_API_KEY:
-        client = anthropic.Anthropic(
-            api_key=OPENROUTER_API_KEY,
-            base_url=OPENROUTER_BASE_URL,
-        )
-        model = "anthropic/claude-sonnet-4-20250514"
-        return client, model, False  # False = no web search support
-    elif ANTHROPIC_API_KEY:
-        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-        model = "claude-sonnet-4-20250514"
-        return client, model, True  # True = web search supported
-    else:
-        raise ValueError(
-            "No API key set. Set OPENROUTER_API_KEY or ANTHROPIC_API_KEY environment variable."
-        )
+# Default models per provider
+DEFAULT_MODELS = {
+    "anthropic": "claude-sonnet-4-20250514",
+    "openrouter": "anthropic/claude-sonnet-4",
+}
 
 # Authoritative financial/business domains for M&A research
 ALLOWED_DOMAINS = [
@@ -60,33 +46,58 @@ ALLOWED_DOMAINS = [
     "bundesanzeiger.de",
 ]
 
-RESEARCH_SYSTEM_PROMPT = """You are an M&A analyst assistant for Constellation Capital AG, a private equity fund focused on DACH-region SMEs.
+RESEARCH_SYSTEM_PROMPT = """You are a senior M&A analyst at Constellation Capital AG, a private equity fund focused on acquiring DACH-region SMEs. You have 15 years of experience in due diligence and company evaluation.
 
-Your job is to research a target company and fill a structured One-Pager data object with all available information.
+Your task is to research a target company and populate a structured One-Pager JSON object. This One-Pager will be reviewed by the investment committee, so accuracy is critical.
 
-Constellation Capital's investment criteria:
-- EBITDA minimum: EUR 1.0m
-- Geography: DACH (Germany, Austria, Switzerland)
-- EBITDA margin minimum: 10%
-- Structure: Majority stake preferred
-- Focus: Asset-light, digitizable businesses with buy & build potential
+## Constellation Capital Investment Criteria
 
-When researching, use web search to find:
-- Company website, LinkedIn, Crunchbase, Handelsregister
-- Revenue and EBITDA figures (last 3 years if available)
-- Business description and product/service portfolio
-- Management team and founders
-- Market position and competitive landscape
-- Any M&A activity or investment rounds
+| Criterion | Threshold |
+|-----------|-----------|
+| EBITDA | >= EUR 1.0m |
+| Geography | DACH (Germany, Austria, Switzerland) |
+| EBITDA Margin | >= 10% |
+| Structure | Majority stake preferred |
+| Business Model | Asset-light, digitizable, buy & build potential |
 
-For investment_criteria, evaluate each criterion based on available data:
-- "fulfilled": criterion is clearly met
-- "questions": insufficient data or partially met
-- "not_interest": clearly not relevant/met
+## Research Process
 
-Before outputting the final JSON, verify your financial figures against multiple sources and flag any discrepancies.
+Work through these steps systematically:
+
+1. **Identify the company**: Find the official website, legal entity name, and headquarters.
+2. **Gather financials**: Look for revenue and EBITDA figures for the last 3 years. For DACH SMEs, check Bundesanzeiger, Unternehmensregister, North Data, and Handelsregister.
+3. **Understand the business**: What products/services does the company offer? What is their market position?
+4. **Identify management**: Who are the founders, CEO, and key executives?
+5. **Evaluate investment criteria**: For each criterion, assess based ONLY on the data you actually found.
+
+## Critical Rules to Avoid Errors
+
+1. **NEVER invent financial figures.** Most DACH SMEs do not publish revenue or EBITDA publicly. If you cannot find a figure from a credible source, leave the field as an empty string or null. An empty field is far better than a fabricated number.
+
+2. **Distinguish facts from inferences.** If you infer something (e.g., estimating employee count from LinkedIn), prefix the value with "~" (e.g., "~120"). If a figure comes from the IM document, use it as-is.
+
+3. **When in doubt, use "questions".** For investment_criteria evaluation:
+   - "fulfilled": You have concrete evidence the criterion is met
+   - "questions": You lack sufficient data, or the data is ambiguous
+   - "not_interest": You have concrete evidence the criterion is NOT met
+   Default to "questions" when unsure. Never mark a criterion as "fulfilled" without supporting data in the One-Pager.
+
+4. **Revenue split: only if known.** Do NOT estimate or guess revenue segment percentages. Only fill revenue_split if the IM or a credible source provides this breakdown. Leave segments as an empty array otherwise.
+
+5. **Management: only verified names.** Only include management names you found on the company website, LinkedIn, Handelsregister, or in the IM. Never guess or fabricate names. If unknown, use a role description like "1 managing shareholder (operational MD)".
+
+6. **Cross-check your output.** Before finalizing:
+   - Does EBITDA margin ≈ EBITDA / Revenue? (If both are provided)
+   - Do your investment criteria evaluations match the key facts? (e.g., if EBITDA is stated as EUR 2.0m, ebitda_1m should be "fulfilled")
+   - Are there any contradictions between description, key_facts, and financials?
 
 Return ONLY valid JSON matching the provided schema. No markdown, no explanation, no code fences."""
+
+# Anthropic variant includes web search instruction
+RESEARCH_SYSTEM_PROMPT_ANTHROPIC = RESEARCH_SYSTEM_PROMPT.replace(
+    "Look for revenue and EBITDA figures for the last 3 years. For DACH SMEs, check Bundesanzeiger, Unternehmensregister, North Data, and Handelsregister.",
+    "Use web search to find revenue and EBITDA figures for the last 3 years. Search Bundesanzeiger, Unternehmensregister, North Data, Handelsregister, and the company website.",
+)
 
 
 def _build_json_schema() -> str:
@@ -96,27 +107,103 @@ def _build_json_schema() -> str:
 
 def _build_user_prompt(company_name: str, im_text: Optional[str] = None) -> str:
     """Build the user prompt for research."""
-    context = ""
     if im_text:
         truncated = im_text[:50000] if len(im_text) > 50000 else im_text
-        context = f"\n\nInformation Memorandum text:\n{truncated}"
+        source_instructions = f"""## Source Material
 
-    return f"""Research this company and fill the One-Pager JSON schema with all available information.
-Search the web for the latest revenue, EBITDA, and company information.
+An Information Memorandum (IM) has been provided below. This is your PRIMARY source.
+- Extract financials, management names, and business description directly from the IM.
+- Use web search only to supplement or verify IM data (e.g., confirm management names, check for recent news).
+- If the IM contradicts web sources, prefer the IM data (it is more current and deal-specific).
 
-Company: {company_name}{context}
+<im_document>
+{truncated}
+</im_document>"""
+    else:
+        source_instructions = """## Source Material
+
+No Information Memorandum was provided. Research this company using public sources only.
+- Many DACH SMEs have limited public data. This is normal.
+- Leave financial fields empty rather than guessing. An empty field is expected and acceptable.
+- Focus on what you CAN verify: website, HQ, industry, founding year, products, management (from LinkedIn/Handelsregister)."""
+
+    return f"""Research this company and fill the One-Pager JSON schema.
+
+**Company: {company_name}**
+
+{source_instructions}
+
+## Output Format
 
 JSON Schema to fill:
 {_build_json_schema()}
 
-Important:
-- Fill ALL fields you can find data for
-- Use "EUR X.Xm" format for monetary values
-- Years should be like "23A" (actual) or "26P" (projected)
-- For management, include names and roles as separate list items
-- For revenue_split segments, estimate percentages if exact data unavailable
-- Leave null for truly unknown numeric values
-- Evaluate each investment criterion honestly based on the data you found
+### Field Format Rules (learn from these real examples):
+
+**header.tagline** — One-line business description, max 80 chars:
+- "Vertically integrated dental practice with strong margin profile"
+- "Provider of premium bedding products & sleep-comfort solutions"
+- "Succession Solution for Indoor E-Karting & Bowling Platform"
+
+**investment_thesis** — Deal-type + target description, one sentence:
+- "100% acquisition of profitable dual-venue leisure platform"
+- "Opportunity to acquire 100% of the shares in a provider of premium bedding products"
+- "100% sale of cash-generative lab component trader & developer"
+
+**key_facts.revenue** / **key_facts.ebitda** — Currency + amount + margin for EBITDA:
+- revenue: "EUR 4.3m", ebitda: "EUR 2.0m (47%)"
+- revenue: "CHF 7.8m", ebitda: "CHF 1.9m (25%)"
+- Use CHF for Swiss companies, EUR otherwise
+
+**key_facts.revenue_year** / **key_facts.ebitda_year** — Year with A/P/E suffix:
+- "FY24A" or "2025A" (A = actual)
+- "25P" (P = projected), "25E" (E = estimated)
+
+**key_facts.management** — Array of strings, one per person with role:
+- ["Andreas Weiland, Founder & Managing Shareholder", "2nd level management for operations"]
+- ["Arndt Hüsges, CEO", "Owners: Arndt Hüsges (70%) & Bernd Hüsges (30%)"]
+- ["1 managing shareholder (operational MD)"] (when names are unknown)
+
+**key_facts.employees** — Number with unit (FTEs or HC):
+- "22.5 FTEs", "150 HC", "~28 FTEs", "10"
+
+**key_facts.founded** — Year only, or "n/a" if truly unknown:
+- "2008", "1957", "n/a"
+
+**description** — 3-5 bullet points describing the business:
+- "Premium 3-level indoor e-karting track (600m, RIMO karts) + 25-lane high-tech bowling center"
+- "Operates own in-house lab enabling high-quality, fast-turnaround prosthetics"
+
+**investment_rationale.pros** — Short, punchy positives (no "+" prefix):
+- "Exceptional profitability"
+- "Asset light business model with strong margins"
+- "Stable, recurring service demand"
+
+**investment_rationale.cons** — Short, punchy negatives (no "–" prefix):
+- "Founder dependency"
+- "High platform dependence on Amazon"
+- "Key-person risk"
+
+**financials** — Multi-year data. Values are in EUR millions as plain numbers:
+- years: ["22A", "23A", "24A", "25P"]
+- revenue: [3.2, 2.9, 3.1, 3.1]  (plain floats, NOT strings)
+- ebitda: [0.9, 0.9, 1.1, 1.2]
+- ebitda_margin: [0.29, 0.317, 0.37, 0.382]  (as decimals, e.g. 0.37 = 37%)
+
+**meta.source** — Where the deal came from:
+- "Alphabet Partners", "Nachfolgekontor", "Ramus & Company AG"
+- "CIM received on 06.11.2025" (if no broker, just IM date)
+
+**meta.status** — Current deal stage:
+- "Internal discussion – 03.03.26"
+- "NBO – 08.12.2025"
+
+### Unknown / unavailable data:
+- Unknown strings: use "" (empty string) or "n/a" for key_facts.founded/website
+- Unknown numeric values: use null (not 0, not a guess)
+- Unknown arrays: use [] (empty array)
+- Revenue split: ONLY fill if you have actual data. Leave segments as [].
+- Investment criteria: Default to "questions" unless you have clear evidence.
 
 Return ONLY the JSON object."""
 
@@ -136,26 +223,90 @@ def _build_web_search_tool() -> dict:
     return tool
 
 
+def get_available_providers() -> list[dict]:
+    """Return list of configured providers with their available models."""
+    providers = []
+
+    if ANTHROPIC_API_KEY:
+        providers.append({
+            "id": "anthropic",
+            "name": "Anthropic (Claude)",
+            "has_web_search": True,
+            "default_model": DEFAULT_MODELS["anthropic"],
+            "models": [
+                {"id": "claude-sonnet-4-20250514", "name": "Claude Sonnet 4"},
+                {"id": "claude-opus-4-20250514", "name": "Claude Opus 4"},
+                {"id": "claude-haiku-4-20250514", "name": "Claude Haiku 4"},
+            ],
+        })
+
+    if OPENROUTER_API_KEY:
+        providers.append({
+            "id": "openrouter",
+            "name": "OpenRouter",
+            "has_web_search": False,
+            "default_model": DEFAULT_MODELS["openrouter"],
+            "models": [
+                {"id": "anthropic/claude-sonnet-4", "name": "Claude Sonnet 4"},
+                {"id": "anthropic/claude-opus-4", "name": "Claude Opus 4"},
+                {"id": "openai/gpt-4o", "name": "GPT-4o"},
+                {"id": "openai/gpt-4.1", "name": "GPT-4.1"},
+                {"id": "google/gemini-2.5-pro-preview", "name": "Gemini 2.5 Pro"},
+                {"id": "deepseek/deepseek-r1", "name": "DeepSeek R1"},
+            ],
+        })
+
+    return providers
+
+
 def research_company(
     company_name: str,
     im_text: Optional[str] = None,
+    provider: Optional[str] = None,
+    model: Optional[str] = None,
 ) -> OnePagerData:
     """
-    Use Claude API with web search to research a company.
-
-    Handles multi-turn tool use and pause_turn — Claude may call
-    web_search several times before returning the final JSON response.
+    Use AI to research a company and fill the One-Pager schema.
 
     Args:
         company_name: Name of the target company
         im_text: Optional extracted text from an Information Memorandum PDF
+        provider: "anthropic" or "openrouter" (auto-detected if None)
+        model: Model ID override (uses provider default if None)
 
     Returns:
-        Populated OnePagerData object with sources list
+        Populated OnePagerData object
     """
-    client, model, web_search_supported = _get_client_and_model()
+    # Auto-detect provider
+    if provider is None:
+        if ANTHROPIC_API_KEY:
+            provider = "anthropic"
+        elif OPENROUTER_API_KEY:
+            provider = "openrouter"
+        else:
+            raise ValueError(
+                "No API key configured. Set ANTHROPIC_API_KEY or OPENROUTER_API_KEY."
+            )
 
-    logger.info("Using model %s (web search: %s)", model, web_search_supported)
+    if provider == "anthropic":
+        return _research_via_anthropic(company_name, im_text, model)
+    elif provider == "openrouter":
+        return _research_via_openrouter(company_name, im_text, model)
+    else:
+        raise ValueError(f"Unknown provider: {provider}. Use 'anthropic' or 'openrouter'.")
+
+
+def _research_via_anthropic(
+    company_name: str,
+    im_text: Optional[str],
+    model: Optional[str],
+) -> OnePagerData:
+    """Research using Anthropic's Claude API with web search."""
+    if not ANTHROPIC_API_KEY:
+        raise ValueError("ANTHROPIC_API_KEY not set.")
+
+    resolved_model = model or DEFAULT_MODELS["anthropic"]
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
     messages = [
         {
@@ -168,25 +319,22 @@ def research_company(
     citations: list[dict] = []
 
     # Multi-turn loop: Claude may use web_search multiple times
-    max_turns = 15 if web_search_supported else 1
+    max_turns = 15
     response = None
 
     for turn in range(max_turns):
-        logger.info("Research turn %d/%d for %s", turn + 1, max_turns, company_name)
+        logger.info(
+            "Research turn %d/%d for %s (anthropic/%s)",
+            turn + 1, max_turns, company_name, resolved_model,
+        )
 
-        # Build request kwargs
-        request_kwargs = {
-            "model": model,
-            "max_tokens": 8000,
-            "system": RESEARCH_SYSTEM_PROMPT,
-            "messages": messages,
-        }
-
-        # Only add tools if web search is supported (direct Anthropic API)
-        if web_search_supported:
-            request_kwargs["tools"] = [web_search_tool]
-
-        response = client.messages.create(**request_kwargs)
+        response = client.messages.create(
+            model=resolved_model,
+            max_tokens=8000,
+            system=RESEARCH_SYSTEM_PROMPT_ANTHROPIC,
+            messages=messages,
+            tools=[web_search_tool],
+        )
 
         # Collect citations from response
         _collect_citations(response, citations)
@@ -204,9 +352,6 @@ def research_company(
             continue
 
         # If stop reason is "tool_use", web search was triggered server-side
-        # The web_search tool is handled by Anthropic's servers —
-        # results are returned inline in the response content blocks.
-        # We just continue the conversation to let Claude process results.
         if response.stop_reason == "tool_use":
             messages.append({"role": "assistant", "content": response.content})
 
@@ -232,15 +377,11 @@ def research_company(
 
     # Extract the JSON from the final response
     json_text = _extract_json_from_response(response)
-
-    # Parse and validate
     data = _parse_response_json(json_text, company_name)
 
-    # Ensure company name is set
     if not data.header.company_name:
         data.header.company_name = company_name
 
-    # Log sources for audit trail
     if citations:
         logger.info(
             "Research for %s used %d citations: %s",
@@ -248,6 +389,58 @@ def research_company(
             len(citations),
             ", ".join(c.get("url", "?")[:60] for c in citations[:5]),
         )
+
+    return data
+
+
+def _research_via_openrouter(
+    company_name: str,
+    im_text: Optional[str],
+    model: Optional[str],
+) -> OnePagerData:
+    """Research using OpenRouter (OpenAI-compatible API)."""
+    if not OPENROUTER_API_KEY:
+        raise ValueError("OPENROUTER_API_KEY not set.")
+
+    resolved_model = model or DEFAULT_MODELS["openrouter"]
+
+    client = OpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=OPENROUTER_API_KEY,
+    )
+
+    logger.info("Researching %s via openrouter/%s", company_name, resolved_model)
+
+    user_prompt = _build_user_prompt(company_name, im_text)
+
+    response = client.chat.completions.create(
+        model=resolved_model,
+        max_tokens=8000,
+        messages=[
+            {"role": "system", "content": RESEARCH_SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ],
+        extra_headers={
+            "HTTP-Referer": "https://constellation-capital.de",
+            "X-Title": "M&A One-Pager Generator",
+        },
+    )
+
+    if not response.choices:
+        raise RuntimeError("No response from OpenRouter API")
+
+    raw_text = response.choices[0].message.content or ""
+    logger.info(
+        "OpenRouter response: model=%s, tokens=%s",
+        response.model,
+        getattr(response.usage, "total_tokens", "?") if response.usage else "?",
+    )
+
+    json_text = _extract_json_from_text(raw_text)
+    data = _parse_response_json(json_text, company_name)
+
+    if not data.header.company_name:
+        data.header.company_name = company_name
 
     return data
 
@@ -297,14 +490,18 @@ def _parse_response_json(json_text: str, company_name: str) -> OnePagerData:
 
 
 def _extract_json_from_response(response) -> str:
-    """Extract JSON string from Claude's response, handling tool use blocks."""
+    """Extract JSON string from Anthropic's response, handling tool use blocks."""
     text_parts = []
     for block in response.content:
         if hasattr(block, "text") and block.text:
             text_parts.append(block.text)
 
     full_text = "\n".join(text_parts).strip()
+    return _extract_json_from_text(full_text)
 
+
+def _extract_json_from_text(full_text: str) -> str:
+    """Extract JSON from a raw text string (handles code fences, brace matching)."""
     if not full_text:
         return "{}"
 

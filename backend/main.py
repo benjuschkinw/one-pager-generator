@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from routers.research import router as research_router
 from routers.generate import router as generate_router
+from services.ai_research import get_available_providers
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
@@ -46,3 +47,9 @@ app.include_router(generate_router, prefix="/api", tags=["generate"])
 async def health():
     """Health check endpoint."""
     return {"status": "ok", "service": "one-pager-generator"}
+
+
+@app.get("/api/providers")
+async def providers():
+    """List available AI providers and their models."""
+    return get_available_providers()

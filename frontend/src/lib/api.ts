@@ -2,18 +2,19 @@
  * API client for the One-Pager Generator backend.
  */
 
-import { OnePagerData } from "./types";
+import { OnePagerData, ResearchResponse } from "./types";
 
 const API_BASE = "/api";
 
 /**
  * Research a company using AI.
  * Optionally upload an IM PDF for extraction.
+ * Returns data + verification results.
  */
 export async function researchCompany(
   companyName: string,
   imFile?: File
-): Promise<OnePagerData> {
+): Promise<ResearchResponse> {
   const formData = new FormData();
   formData.append("company_name", companyName);
   if (imFile) {
