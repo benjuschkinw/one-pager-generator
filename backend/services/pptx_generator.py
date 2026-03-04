@@ -1,7 +1,9 @@
 """
 PPTX Generator: fills the One-Pager template with data and chart images.
 
-Uses python-pptx to find named shapes and update text/images.
+Uses the Constellation Capital AG original template (10" x 5.625", 4-column
+layout) as the base. Named shapes in the template are filled with structured
+data from the OnePagerData model.
 """
 
 import io
@@ -13,34 +15,29 @@ from typing import Optional
 from pptx import Presentation
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
-from pptx.util import Pt, Inches
+from pptx.util import Pt
 
 from models.one_pager import OnePagerData, CriterionStatus
 from services.chart_generator import generate_financials_chart, generate_revenue_donut
-from services.template_builder import build_template
 
-# Colors
+# Constellation Capital AG brand colors (from original templates)
+DARK_NAVY = RGBColor(0x22, 0x3F, 0x6A)
 DARK_BLUE = RGBColor(0x1F, 0x4E, 0x79)
 MID_BLUE = RGBColor(0x2E, 0x75, 0xB6)
 WHITE = RGBColor(0xFF, 0xFF, 0xFF)
+BLACK = RGBColor(0x00, 0x00, 0x00)
 DARK_GRAY = RGBColor(0x40, 0x40, 0x40)
 GREEN = RGBColor(0x00, 0xB0, 0x50)
-RED = RGBColor(0xFF, 0x00, 0x00)
-YELLOW = RGBColor(0xFF, 0xC0, 0x00)
+RED = RGBColor(0xC0, 0x00, 0x00)
+GOLD = RGBColor(0xF4, 0xC5, 0x00)
 LIGHT_GRAY = RGBColor(0xD9, 0xD9, 0xD9)
 
 TEMPLATE_DIR = os.path.join(os.path.dirname(__file__), "..", "template")
 TEMPLATE_PATH = os.path.join(TEMPLATE_DIR, "one_pager_template.pptx")
 
 
-def _ensure_template():
-    """Build the template if it doesn't exist yet."""
-    if not os.path.exists(TEMPLATE_PATH):
-        build_template(TEMPLATE_PATH)
-
-
 def _build_shape_map(slide) -> dict:
-    """Build name→shape mapping, including shapes inside groups."""
+    """Build name->shape mapping, including shapes inside groups."""
     shape_map = {}
     for shape in slide.shapes:
         shape_map[shape.name] = shape
@@ -61,18 +58,19 @@ def _clear_text_frame(tf):
 
 
 def _add_run(paragraph, text, font_name="Calibri", font_size=Pt(8),
-             bold=False, color=DARK_GRAY):
+             bold=False, color=None):
     """Add a formatted run to a paragraph."""
     run = paragraph.add_run()
     run.text = text
     run.font.name = font_name
     run.font.size = font_size
     run.font.bold = bold
-    run.font.color.rgb = color
+    if color is not None:
+        run.font.color.rgb = color
     return run
 
 
-def _set_shape_text(shape, text, font_size=Pt(8), bold=False, color=DARK_GRAY,
+def _set_shape_text(shape, text, font_size=Pt(8), bold=False, color=None,
                     alignment=PP_ALIGN.LEFT):
     """Replace all text in a shape with a single styled run."""
     if not shape.has_text_frame:
@@ -85,23 +83,39 @@ def _set_shape_text(shape, text, font_size=Pt(8), bold=False, color=DARK_GRAY,
 
 
 def _fill_header(shape_map: dict, data: OnePagerData):
-    """Fill the header section."""
-    if "header_label" in shape_map:
-        _set_shape_text(shape_map["header_label"], data.header.label,
-                        font_size=Pt(14), bold=True, color=WHITE)
+    """Fill the header section (title placeholder + tagline + investment thesis)."""
+    # "One Pager | COMPANY NAME" in the title placeholder
+    if "header_title" in shape_map:
+        shape = shape_map["header_title"]
+        if shape.has_text_frame:
+            tf = shape.text_frame
+            _clear_text_frame(tf)
+            p = tf.paragraphs[0]
+            _add_run(p, f"One Pager | ", font_size=Pt(12), bold=True)
+            _add_run(p, data.header.company_name, font_size=Pt(12), bold=True)
 
-    if "header_company" in shape_map:
-        _set_shape_text(shape_map["header_company"], data.header.company_name,
-                        font_size=Pt(18), bold=True, color=WHITE)
-
+    # Tagline below the title
     if "header_tagline" in shape_map:
-        _set_shape_text(shape_map["header_tagline"],
-                        data.header.tagline or data.investment_thesis,
-                        font_size=Pt(10), color=WHITE, alignment=PP_ALIGN.RIGHT)
+        shape = shape_map["header_tagline"]
+        if shape.has_text_frame:
+            tf = shape.text_frame
+            _clear_text_frame(tf)
+            p = tf.paragraphs[0]
+            _add_run(p, data.header.tagline or "", font_size=Pt(11))
+
+    # Investment thesis bar (full width)
+    if "investment_thesis" in shape_map:
+        shape = shape_map["investment_thesis"]
+        if shape.has_text_frame:
+            tf = shape.text_frame
+            _clear_text_frame(tf)
+            p = tf.paragraphs[0]
+            _add_run(p, "Investment-Thesis:  ", font_size=Pt(8), bold=True)
+            _add_run(p, data.investment_thesis, font_size=Pt(8))
 
 
 def _fill_key_facts(shape_map: dict, data: OnePagerData):
-    """Fill the Key Facts section."""
+    """Fill the Key Facts section (column 1)."""
     shape = shape_map.get("keyfacts_content")
     if not shape or not shape.has_text_frame:
         return
@@ -121,14 +135,19 @@ def _fill_key_facts(shape_map: dict, data: OnePagerData):
         ("Employees:", kf.employees),
     ]
 
-    for i, (label, value) in enumerate(fields):
+    first = True
+    for label, value in fields:
         if not value:
             continue
-        p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
+        if first:
+            p = tf.paragraphs[0]
+            first = False
+        else:
+            p = tf.add_paragraph()
         p.space_before = Pt(2)
         p.space_after = Pt(1)
-        _add_run(p, label + " ", bold=True, color=DARK_BLUE, font_size=Pt(8))
-        _add_run(p, value, color=DARK_GRAY, font_size=Pt(8))
+        _add_run(p, label + " ", bold=True, color=DARK_NAVY, font_size=Pt(7))
+        _add_run(p, value, font_size=Pt(7))
 
 
 def _fill_bullets(shape_map: dict, shape_name: str, bullets: list[str]):
@@ -144,30 +163,38 @@ def _fill_bullets(shape_map: dict, shape_name: str, bullets: list[str]):
         p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
         p.space_before = Pt(1)
         p.space_after = Pt(1)
-        _add_run(p, f"• {bullet}", color=DARK_GRAY, font_size=Pt(8))
+        _add_run(p, f"• {bullet}", font_size=Pt(7))
 
 
 def _fill_rationale(shape_map: dict, data: OnePagerData):
-    """Fill the Investment Rationale (pros in green, cons in red)."""
+    """Fill the Investment Rationale (pros in green, cons in red) in column 4."""
+    shape = shape_map.get("rationale_content")
+    if not shape or not shape.has_text_frame:
+        return
+
+    tf = shape.text_frame
+    _clear_text_frame(tf)
+
+    first = True
     # Pros
-    shape = shape_map.get("rationale_pros")
-    if shape and shape.has_text_frame:
-        tf = shape.text_frame
-        _clear_text_frame(tf)
-        for i, pro in enumerate(data.investment_rationale.pros):
-            p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
-            p.space_before = Pt(1)
-            _add_run(p, f"+ {pro}", color=GREEN, font_size=Pt(8))
+    for pro in data.investment_rationale.pros:
+        if first:
+            p = tf.paragraphs[0]
+            first = False
+        else:
+            p = tf.add_paragraph()
+        p.space_before = Pt(1)
+        _add_run(p, f"+ {pro}", color=GREEN, font_size=Pt(7))
 
     # Cons
-    shape = shape_map.get("rationale_cons")
-    if shape and shape.has_text_frame:
-        tf = shape.text_frame
-        _clear_text_frame(tf)
-        for i, con in enumerate(data.investment_rationale.cons):
-            p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
-            p.space_before = Pt(1)
-            _add_run(p, f"– {con}", color=RED, font_size=Pt(8))
+    for con in data.investment_rationale.cons:
+        if first:
+            p = tf.paragraphs[0]
+            first = False
+        else:
+            p = tf.add_paragraph()
+        p.space_before = Pt(1)
+        _add_run(p, f"– {con}", color=RED, font_size=Pt(7))
 
 
 def _fill_criteria(shape_map: dict, data: OnePagerData):
@@ -177,7 +204,6 @@ def _fill_criteria(shape_map: dict, data: OnePagerData):
         "criteria_dach": data.investment_criteria.dach,
         "criteria_ebitda_margin_10": data.investment_criteria.ebitda_margin_10,
         "criteria_majority_stake": data.investment_criteria.majority_stake,
-        "criteria_revenue_split": data.investment_criteria.revenue_split,
         "criteria_digitization": data.investment_criteria.digitization,
         "criteria_asset_light": data.investment_criteria.asset_light,
         "criteria_buy_and_build": data.investment_criteria.buy_and_build,
@@ -190,8 +216,8 @@ def _fill_criteria(shape_map: dict, data: OnePagerData):
 
     status_colors = {
         CriterionStatus.FULFILLED: GREEN,
-        CriterionStatus.QUESTIONS: YELLOW,
-        CriterionStatus.NOT_INTEREST: LIGHT_GRAY,
+        CriterionStatus.QUESTIONS: GOLD,
+        CriterionStatus.NOT_INTEREST: RED,
     }
 
     for prefix, status in criteria_map.items():
@@ -203,7 +229,7 @@ def _fill_criteria(shape_map: dict, data: OnePagerData):
 
 
 def _fill_status(shape_map: dict, data: OnePagerData):
-    """Fill the Status section."""
+    """Fill the Status section (column 4, bottom)."""
     shape = shape_map.get("status_content")
     if not shape or not shape.has_text_frame:
         return
@@ -212,17 +238,22 @@ def _fill_status(shape_map: dict, data: OnePagerData):
     _clear_text_frame(tf)
 
     lines = [
-        ("Source:", data.meta.source),
-        ("IM received:", data.meta.im_received),
-        ("LOI Deadline:", data.meta.loi_deadline),
         ("Status:", data.meta.status),
     ]
+
+    # Add additional meta fields if present
+    if data.meta.source:
+        lines.insert(0, ("Source:", data.meta.source))
+    if data.meta.im_received:
+        lines.append(("IM received:", data.meta.im_received))
+    if data.meta.loi_deadline:
+        lines.append(("LOI Deadline:", data.meta.loi_deadline))
 
     for i, (label, value) in enumerate(lines):
         p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
         p.space_before = Pt(1)
-        _add_run(p, label + " ", bold=True, color=DARK_BLUE, font_size=Pt(8))
-        _add_run(p, value or "", color=DARK_GRAY, font_size=Pt(8))
+        _add_run(p, label + " ", bold=True, font_size=Pt(7))
+        _add_run(p, value or "", font_size=Pt(7))
 
 
 def _replace_shape_with_image(slide, shape_map: dict, shape_name: str,
@@ -248,6 +279,9 @@ def generate_one_pager(data: OnePagerData, output_path: Optional[str] = None) ->
     """
     Generate a complete One-Pager PPTX from structured data.
 
+    Uses the Constellation Capital AG template (derived from original
+    hand-crafted templates) with the 4-column layout at 10" x 5.625".
+
     Args:
         data: Complete OnePagerData object
         output_path: Optional path to save the file
@@ -255,7 +289,11 @@ def generate_one_pager(data: OnePagerData, output_path: Optional[str] = None) ->
     Returns:
         PPTX file bytes
     """
-    _ensure_template()
+    if not os.path.exists(TEMPLATE_PATH):
+        raise FileNotFoundError(
+            f"Template not found at {TEMPLATE_PATH}. "
+            "Please ensure the template file exists."
+        )
 
     # Copy template to temp file
     with tempfile.NamedTemporaryFile(suffix=".pptx", delete=False) as tmp:
@@ -299,7 +337,6 @@ def generate_one_pager(data: OnePagerData, output_path: Optional[str] = None) ->
         buf.seek(0)
         result = buf.read()
     finally:
-        # Always clean up temp file, even on error
         os.unlink(tmp_path)
 
     # Optionally save to disk

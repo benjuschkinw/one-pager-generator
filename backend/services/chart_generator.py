@@ -49,21 +49,22 @@ def generate_revenue_donut(
     sizes = [s["pct"] for s in segments]
     colors = ACCENT_COLORS[: len(segments)]
 
-    fig, ax = plt.subplots(figsize=(4, 3.2))
+    # Sized to fit the 1.94" x 1.74" chart area in the template
+    fig, ax = plt.subplots(figsize=(2.2, 2.0))
 
     wedges, _ = ax.pie(
         sizes,
         colors=colors,
-        wedgeprops=dict(width=0.45, edgecolor=WHITE, linewidth=1.5),
+        wedgeprops=dict(width=0.45, edgecolor=WHITE, linewidth=1),
         startangle=90,
         counterclock=False,
     )
 
     # Center text
     ax.text(0, 0.08, total, ha="center", va="center",
-            fontsize=11, fontweight="bold", color=DARK_BLUE, family=FONT_FAMILY)
-    ax.text(0, -0.12, "Revenue", ha="center", va="center",
-            fontsize=8, color=DARK_GRAY, family=FONT_FAMILY)
+            fontsize=8, fontweight="bold", color=DARK_BLUE, family=FONT_FAMILY)
+    ax.text(0, -0.15, "Revenue", ha="center", va="center",
+            fontsize=6, color=DARK_GRAY, family=FONT_FAMILY)
 
     # Legend with percentages and growth
     legend_labels = []
@@ -77,8 +78,8 @@ def generate_revenue_donut(
         wedges,
         legend_labels,
         loc="lower center",
-        bbox_to_anchor=(0.5, -0.18),
-        fontsize=7,
+        bbox_to_anchor=(0.5, -0.15),
+        fontsize=5,
         frameon=False,
         ncol=1,
     )
@@ -123,7 +124,8 @@ def generate_financials_chart(
     rev_vals = [v if v is not None else 0 for v in revenue[:n]]
     ebit_vals = [v if v is not None else 0 for v in ebitda[:n]]
 
-    fig, ax = plt.subplots(figsize=(5, 3.2))
+    # Sized to fit the 2.37" x 1.11" chart area in the template
+    fig, ax = plt.subplots(figsize=(2.8, 1.3))
 
     # Distinguish actual vs projected
     rev_colors = []
@@ -147,32 +149,32 @@ def generate_financials_chart(
     # Value labels on bars
     for bar, val in zip(bars_rev, rev_vals):
         if val > 0:
-            ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.05,
-                    f"{val:.1f}", ha="center", va="bottom", fontsize=7,
+            ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.02,
+                    f"{val:.1f}", ha="center", va="bottom", fontsize=5,
                     color=DARK_GRAY, family=FONT_FAMILY)
 
     for bar, val in zip(bars_ebit, ebit_vals):
         if val > 0:
-            ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.05,
-                    f"{val:.1f}", ha="center", va="bottom", fontsize=7,
+            ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.02,
+                    f"{val:.1f}", ha="center", va="bottom", fontsize=5,
                     color=DARK_GRAY, family=FONT_FAMILY)
 
     # EBITDA margin labels below x-axis
     if ebitda_margin:
         for i, margin in enumerate(ebitda_margin):
             if margin is not None:
-                ax.text(x[i], -0.25, f"{int(margin * 100)}%",
-                        ha="center", fontsize=7, color=MID_BLUE, family=FONT_FAMILY)
+                ax.text(x[i], -0.15, f"{int(margin * 100)}%",
+                        ha="center", fontsize=5, color=MID_BLUE, family=FONT_FAMILY)
 
     # Styling
     ax.set_xticks(x)
-    ax.set_xticklabels(years, fontsize=8, family=FONT_FAMILY)
-    ax.set_ylabel("EUR m", fontsize=8, color=DARK_GRAY, family=FONT_FAMILY)
+    ax.set_xticklabels(years, fontsize=6, family=FONT_FAMILY)
+    ax.set_ylabel("EUR m", fontsize=6, color=DARK_GRAY, family=FONT_FAMILY)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     ax.spines["left"].set_color(DARK_GRAY)
     ax.spines["bottom"].set_color(DARK_GRAY)
-    ax.tick_params(axis="y", labelsize=7, colors=DARK_GRAY)
+    ax.tick_params(axis="y", labelsize=5, colors=DARK_GRAY)
     ax.yaxis.set_major_formatter(mticker.FormatStrFormatter("%.1f"))
     ax.set_ylim(bottom=0)
 
@@ -185,7 +187,7 @@ def generate_financials_chart(
         mpatches.Patch(facecolor=DARK_BLUE, label="Revenue"),
         mpatches.Patch(facecolor=MID_BLUE, label="EBITDA"),
     ]
-    ax.legend(handles=legend_elements, loc="upper left", fontsize=7, frameon=False)
+    ax.legend(handles=legend_elements, loc="upper left", fontsize=5, frameon=False)
 
     plt.tight_layout()
     return _save_fig(fig, output_path)

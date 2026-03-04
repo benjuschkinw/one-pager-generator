@@ -100,6 +100,27 @@ class OnePagerData(BaseModel):
     )
 
 
+class FieldFlag(BaseModel):
+    """A verification flag for a specific field."""
+    field: str
+    severity: str = "warning"  # "warning", "error", "info"
+    message: str
+
+
+class VerificationResult(BaseModel):
+    """Result of cross-checking the AI-generated data."""
+    verified: bool = False
+    confidence: float = 0.0  # 0.0 to 1.0
+    flags: list[FieldFlag] = Field(default_factory=list)
+    verifier_model: str = ""
+
+
+class ResearchResponse(BaseModel):
+    """Extended research response with verification."""
+    data: OnePagerData
+    verification: Optional[VerificationResult] = None
+
+
 class ResearchRequest(BaseModel):
     company_name: str
     im_text: Optional[str] = None

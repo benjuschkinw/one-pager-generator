@@ -3,7 +3,7 @@
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { researchCompany } from "@/lib/api";
-import { OnePagerData } from "@/lib/types";
+import { ResearchResponse } from "@/lib/types";
 
 export default function InputPage() {
   const router = useRouter();
@@ -23,12 +23,15 @@ export default function InputPage() {
     setError(null);
 
     try {
-      const data: OnePagerData = await researchCompany(
+      const response: ResearchResponse = await researchCompany(
         companyName.trim(),
         file || undefined
       );
-      // Store data in sessionStorage and navigate to editor
-      sessionStorage.setItem("onePagerData", JSON.stringify(data));
+      // Store data and verification in sessionStorage, navigate to editor
+      sessionStorage.setItem("onePagerData", JSON.stringify(response.data));
+      if (response.verification) {
+        sessionStorage.setItem("verification", JSON.stringify(response.verification));
+      }
       router.push("/editor");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Research failed");
