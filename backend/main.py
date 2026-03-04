@@ -15,7 +15,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from routers.research import router as research_router
 from routers.generate import router as generate_router
 from routers.prompts import router as prompts_router
+from routers.jobs import router as jobs_router
 from services.ai_research import get_available_providers
+from services.job_store import init_db
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
@@ -43,6 +45,13 @@ app.add_middleware(
 app.include_router(research_router, prefix="/api", tags=["research"])
 app.include_router(generate_router, prefix="/api", tags=["generate"])
 app.include_router(prompts_router, prefix="/api", tags=["prompts"])
+app.include_router(jobs_router, prefix="/api", tags=["jobs"])
+
+
+@app.on_event("startup")
+async def startup():
+    """Initialize the database on application startup."""
+    await init_db()
 
 
 @app.get("/api/health")

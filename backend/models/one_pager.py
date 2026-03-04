@@ -119,6 +119,7 @@ class ResearchResponse(BaseModel):
     """Extended research response with verification."""
     data: OnePagerData
     verification: Optional[VerificationResult] = None
+    job_id: Optional[str] = None
 
 
 class ResearchRequest(BaseModel):

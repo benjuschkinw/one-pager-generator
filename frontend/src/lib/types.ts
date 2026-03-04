@@ -100,6 +100,60 @@ export interface VerificationResult {
 export interface ResearchResponse {
   data: OnePagerData;
   verification: VerificationResult | null;
+  job_id: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Job persistence types
+// ---------------------------------------------------------------------------
+
+export interface JobSummary {
+  id: string;
+  company_name: string;
+  created_at: string;
+  updated_at: string;
+  status: "pending" | "researching" | "completed" | "failed";
+  im_filename: string | null;
+  research_mode: "standard" | "deep";
+  has_pptx: boolean;
+}
+
+export interface StepVerification {
+  verifier_model: string;
+  confidence: number;
+  flags: FieldFlag[];
+  hallucination_risk: "low" | "medium" | "high";
+}
+
+export interface DeepResearchStep {
+  step_name: string;
+  label: string;
+  model_used: string;
+  status: "pending" | "running" | "done" | "error" | "verified";
+  started_at: string | null;
+  completed_at: string | null;
+  result_json: Record<string, unknown> | null;
+  verification: StepVerification | null;
+  error_message: string | null;
+  sources: string[];
+}
+
+export interface Job {
+  id: string;
+  company_name: string;
+  created_at: string;
+  updated_at: string;
+  status: "pending" | "researching" | "completed" | "failed";
+  im_filename: string | null;
+  im_file_path: string | null;
+  provider: string | null;
+  model: string | null;
+  research_mode: "standard" | "deep";
+  research_data: OnePagerData | null;
+  verification: VerificationResult | null;
+  deep_research_steps: DeepResearchStep[] | null;
+  edited_data: OnePagerData | null;
+  pptx_file_path: string | null;
 }
 
 export interface PromptDefinition {
