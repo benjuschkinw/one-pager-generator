@@ -3,8 +3,8 @@
 ## Overview
 
 Two interconnected features:
-1. **Persistent Job Storage** — Every research run becomes a "job" with uploaded docs, AI research, extracted data, PPTX output, and deep research all saved and browsable
-2. **Deep Research** — Multi-step AI pipeline with per-step model selection via OpenRouter
+1. **Persistent Job Storage** — Every research run becomes a "job" with uploaded docs, AI research, extracted data, PPTX output, and deep research results all saved and browsable
+2. **Deep Research** — Multi-step AI pipeline with per-step model selection via OpenRouter, strict anti-hallucination, 2nd AI recheck per step, all prompts editable, nice results frontend, PPTX generation from deep research
 
 ---
 
@@ -19,12 +19,12 @@ Currently all data lives in browser `sessionStorage` — it's lost on refresh, c
 **New file: `backend/models/job.py`**
 
 ```python
-class Job:
+class Job(BaseModel):
     id: str                    # UUID
     company_name: str
     created_at: datetime
     updated_at: datetime
-    status: "pending" | "researching" | "completed" | "failed"
+    status: Literal["pending", "researching", "completed", "failed"]
 
     # Inputs
     im_filename: str | None    # Original uploaded filename
@@ -34,34 +34,42 @@ class Job:
     # Research config
     provider: str | None
     model: str | None
-    research_mode: "standard" | "deep"
+    research_mode: Literal["standard", "deep"]
 
     # Outputs
-    research_data: OnePagerData | None        # AI research result
-    verification: VerificationResult | None   # Cross-verification
-    deep_research_steps: list[DeepResearchStep] | None  # Per-step results (deep mode)
+    research_data: OnePagerData | None        # AI research result (raw)
+    verification: VerificationResult | None   # Cross-verification result
+    deep_research_steps: list[DeepResearchStep] | None  # Per-step results
     edited_data: OnePagerData | None          # User-edited version
     pptx_file_path: str | None               # Path to generated PPTX
 
-class DeepResearchStep:
+class DeepResearchStep(BaseModel):
     step_name: str             # e.g. "im_extraction", "web_research"
+    label: str                 # Human-readable: "IM Extraction"
     model_used: str            # e.g. "anthropic/claude-opus-4"
-    status: "pending" | "running" | "done" | "error"
+    status: Literal["pending", "running", "done", "error", "verified"]
     started_at: datetime | None
     completed_at: datetime | None
     result_json: dict | None   # Partial result from this step
+    verification: StepVerification | None  # Per-step 2nd AI recheck
     error_message: str | None
+    sources: list[str]         # URLs / doc references used
+
+class StepVerification(BaseModel):
+    verifier_model: str
+    confidence: float          # 0.0 - 1.0
+    flags: list[FieldFlag]
+    hallucination_risk: Literal["low", "medium", "high"]
 ```
 
 ### Storage
 
-**SQLite + aiosqlite** — lightweight, zero-config, perfect for a single-user tool:
+**SQLite + aiosqlite** — lightweight, zero-config, single-user tool:
 - `backend/services/job_store.py` — CRUD operations for jobs
 - DB file: `data/jobs.db` (gitignored)
-- File uploads stored in: `data/uploads/{job_id}/` (original PDFs)
-- Generated PPTX stored in: `data/outputs/{job_id}/` (PPTX files)
+- File uploads: `data/uploads/{job_id}/` (original PDFs)
+- Generated PPTX: `data/outputs/{job_id}/` (PPTX files)
 
-Tables:
 ```sql
 CREATE TABLE jobs (
     id TEXT PRIMARY KEY,
@@ -112,13 +120,6 @@ All edits auto-save to PUT /api/jobs/{id}/data
 PPTX generation saves to job via POST /api/jobs/{id}/generate
 ```
 
-The existing `POST /api/research` endpoint is modified to:
-1. Create a job record with status "pending"
-2. Store the uploaded PDF in `data/uploads/{job_id}/`
-3. Run research (sets status "researching")
-4. Save research_data + verification to job (sets status "completed")
-5. Return `{ job_id, data, verification }` (backwards-compatible, adds job_id)
-
 ### Frontend Changes
 
 **New page: `/jobs` — Job History**
@@ -131,7 +132,7 @@ The existing `POST /api/research` endpoint is modified to:
 - Dynamic route: loads job data from `GET /api/jobs/{id}` instead of sessionStorage
 - Auto-saves edits to backend via debounced `PUT /api/jobs/{id}/data`
 - "Download IM" button (if job has IM)
-- "Download PPTX" button (if job has generated PPTX)
+- "Download PPTX" button (if job has previously generated PPTX)
 - Generate button calls `POST /api/jobs/{id}/generate`
 
 **Modified: `/` — Input Page**
@@ -139,20 +140,7 @@ The existing `POST /api/research` endpoint is modified to:
 - Add "Recent Jobs" section below the form showing last 5 jobs
 
 **New component: `JobCard.tsx`**
-- Compact card showing: company name, date, status, action icons (view, download IM, download PPTX, delete)
-
-### File Structure
-
-```
-data/                          # gitignored
-├── jobs.db                    # SQLite database
-├── uploads/
-│   └── {job_id}/
-│       └── original.pdf       # Uploaded IM
-└── outputs/
-    └── {job_id}/
-        └── one_pager.pptx     # Generated PPTX
-```
+- Compact card: company name, date, status, action icons (view, download IM, download PPTX, delete)
 
 ---
 
@@ -166,17 +154,15 @@ data/                          # gitignored
 
 ### Pipeline
 
-**New file: `backend/services/deep_research.py`**
-
-| Step | Sub-task | Model | Why |
-|------|----------|-------|-----|
-| 1 | **IM Extraction** (if PDF) | `anthropic/claude-opus-4` via OpenRouter | Best at long doc analysis |
-| 2 | **Web Research** | `claude-opus-4` via Anthropic API | Needs web search |
-| 3 | **Financial Deep-Dive** | `claude-opus-4` via Anthropic API | Needs web search for registries |
-| 4 | **Management & Org** | `claude-opus-4` via Anthropic API | Needs web search for LinkedIn |
-| 5 | **Market & Competitive** | `google/gemini-2.5-pro-preview` via OpenRouter | Strong synthesis, large context |
-| 6 | **Merge & Synthesize** | `anthropic/claude-opus-4` via OpenRouter | Best structured output |
-| 7 | **Cross-Verify** | `openai/gpt-4.1` via OpenRouter | Cross-model diversity |
+| Step | Sub-task | Model | Why | Web search |
+|------|----------|-------|-----|------------|
+| 1 | **IM Extraction** (if PDF) | `anthropic/claude-opus-4` via OpenRouter | Best at long doc analysis | No |
+| 2 | **Web Research** | `claude-opus-4` via Anthropic API | Company basics | Yes |
+| 3 | **Financial Deep-Dive** | `claude-opus-4` via Anthropic API | Bundesanzeiger, North Data | Yes |
+| 4 | **Management & Org** | `claude-opus-4` via Anthropic API | LinkedIn, Handelsregister | Yes |
+| 5 | **Market & Competitive** | `google/gemini-2.5-pro-preview` via OpenRouter | Synthesis, large context | No |
+| 6 | **Merge & Synthesize** | `anthropic/claude-opus-4` via OpenRouter | Best structured output | No |
+| 7 | **Final Cross-Verify** | `openai/gpt-4.1` via OpenRouter | Cross-model diversity | No |
 
 ```
                     ┌──────────────┐
@@ -188,6 +174,7 @@ data/                          # gitignored
     ┌──────────────┐ ┌──────────┐ ┌────────────────┐ ┌──────────────┐
     │ 2. Web       │ │ 3. Fin   │ │ 4. Management  │ │ 5. Market &  │
     │   Research   │ │ Deep-Dive│ │    & Org       │ │ Competitive  │
+    │  + recheck   │ │ + recheck│ │  + recheck     │ │  + recheck   │
     └──────┬───────┘ └────┬─────┘ └───────┬────────┘ └──────┬───────┘
            └──────────────┼───────────────┘                  │
                           ▼                                  │
@@ -197,33 +184,99 @@ data/                          # gitignored
                     └──────┬───────┘
                            ▼
                     ┌──────────────┐
-                    │ 7. Verify    │
+                    │ 7. Final     │
+                    │   Verify     │
                     └──────────────┘
 ```
 
-Steps 2-5 run in parallel via `asyncio.gather`. Each step's result is saved to `deep_research_steps` in the job record as it completes.
+Steps 2-5 run in parallel. Each step includes an inline 2nd-AI recheck before proceeding.
 
-### SSE Progress Streaming
+### Anti-Hallucination Strategy (3 layers)
 
-**New endpoint: `POST /api/jobs/{id}/research/deep`** (returns SSE stream)
+Critical for M&A research — fabricated financials or management names are worse than no data.
 
-The job must already exist (created by the initial `POST /api/research` or a new `POST /api/jobs` endpoint). Deep research streams progress events:
+#### Layer 1: Prompt-Level Guards (per step)
+
+Every sub-task prompt includes:
+- "NEVER invent financial figures. If you cannot find data, return null."
+- "Prefix inferred values with ~ (e.g., ~120 employees)"
+- "For each fact, include the source URL or document reference in a `_sources` field"
+- "Default investment criteria to 'questions' unless you have concrete evidence"
+- "Return a confidence score (0.0-1.0) for the overall output"
+
+#### Layer 2: Per-Step 2nd AI Recheck
+
+After each of steps 1-5, a **different model** rechecks that step's output:
+- Claude research → GPT-4.1 recheck
+- Gemini research → Claude Sonnet 4 recheck
+
+The recheck prompt receives the step's output + source material and returns:
+- Per-field confidence scores
+- Hallucination risk assessment (low/medium/high)
+- Specific flags for suspicious claims
+
+Result stored in `DeepResearchStep.verification`.
+
+#### Layer 3: Final Cross-Verification (existing, enhanced)
+
+After merge (step 6), the full verification pipeline runs:
+- **Algorithmic checks**: Revenue split sums, EBITDA margin consistency, criteria logic
+- **AI cross-verification**: Complete data reviewed by a different model family
+- **Inter-step consistency**: Financial data from step 3 vs IM extraction in step 1
+
+### All Prompts Editable (13 total)
+
+| Prompt Name | Used In | Description |
+|-------------|---------|-------------|
+| `research_system` | Standard | System prompt (web search mode) |
+| `research_system_no_search` | Standard | System prompt (no web search) |
+| `research_user_with_im` | Standard | User prompt with IM |
+| `research_user_no_im` | Standard | User prompt without IM |
+| `verification` | Standard | Cross-verification prompt |
+| `deep_im_extraction` | Step 1 | Extract structured data from IM |
+| `deep_web_research` | Step 2 | Find company basics via web search |
+| `deep_financials` | Step 3 | Find/verify financial data |
+| `deep_management` | Step 4 | Find management team, ownership |
+| `deep_market` | Step 5 | Market sizing, competitive landscape |
+| `deep_merge` | Step 6 | Merge sub-task results into OnePagerData |
+| `deep_step_recheck` | Steps 1-5 | Per-step 2nd AI recheck |
+| `deep_final_verify` | Step 7 | Final cross-verification |
+
+PromptEditor UI groups them: Standard Research / Deep Research / Verification.
+
+### Frontend: Deep Research Results
+
+**New component: `DeepResearchResults.tsx`**
+
+Expandable panel above the editor showing the full research trail:
 
 ```
-event: progress
-data: {"step": "im_extraction", "label": "Extracting IM document...", "status": "running"}
-
-event: step_complete
-data: {"step": "web_research", "fields_found": ["header.tagline", "key_facts.hq"]}
-
-event: complete
-data: {"job_id": "abc-123"}
-
-event: error
-data: {"step": "financials", "message": "Timed out, using partial data"}
+┌─────────────────────────────────────────────────────────┐
+│  Deep Research Results          ▾ Expand                │
+│  Overall: 87% confidence · 5/5 steps verified           │
+│                                                         │
+│  ┌─ Step 1: IM Extraction ──── ✓ verified (92%) ──────┐ │
+│  │  Model: claude-opus-4 · 12s · 23 fields extracted   │ │
+│  │  Recheck: GPT-4.1 — no issues                      │ │
+│  │  [Show data]  [Show raw output]                     │ │
+│  └─────────────────────────────────────────────────────┘ │
+│                                                         │
+│  ┌─ Step 3: Financials ──── ⚠ warnings (72%) ────────┐  │
+│  │  Model: claude-opus-4 · 35s · 4 web searches       │  │
+│  │  Found: Revenue 22A-24A, EBITDA 23A-24A            │  │
+│  │  Recheck: GPT-4.1 — EBITDA margin inconsistency    │  │
+│  │  Sources: bundesanzeiger.de, northdata.de           │  │
+│  │  [Show data]  [Show sources]                        │  │
+│  └─────────────────────────────────────────────────────┘  │
+│                                                         │
+│  📄 Documents: IM_ACCEL.pdf (3.2 MB) [Download]        │
+│  📊 Outputs: One_Pager_ACCEL.pptx [Download] [JSON]    │
+└─────────────────────────────────────────────────────────┘
 ```
 
-Each step completion updates the job record in the database, so progress is persisted even if the browser disconnects.
+### PPTX from Deep Research
+
+Deep research produces the same `OnePagerData` (via step 6 merge), so the existing PPTX generator and template work as-is. Same one-pager slide design. No changes to `pptx_generator.py`.
 
 ### Model Configuration
 
@@ -231,105 +284,67 @@ Each step completion updates the job record in the database, so progress is pers
 
 ```python
 DEEP_RESEARCH_MODELS = {
-    "im_extraction": env("MODEL_IM_EXTRACTION", "anthropic/claude-opus-4"),
-    "web_research": "anthropic",        # Must use Anthropic API for web search
-    "financials": "anthropic",           # Must use Anthropic API for web search
-    "management": "anthropic",           # Must use Anthropic API for web search
-    "market": env("MODEL_MARKET", "google/gemini-2.5-pro-preview"),
-    "merge": env("MODEL_MERGE", "anthropic/claude-opus-4"),
-    "verify": env("MODEL_VERIFY", "openai/gpt-4.1"),
+    "im_extraction":   env("MODEL_IM_EXTRACTION", "anthropic/claude-opus-4"),
+    "web_research":    "anthropic",        # Anthropic API for web search
+    "financials":      "anthropic",        # Anthropic API for web search
+    "management":      "anthropic",        # Anthropic API for web search
+    "market":          env("MODEL_MARKET", "google/gemini-2.5-pro-preview"),
+    "merge":           env("MODEL_MERGE", "anthropic/claude-opus-4"),
+    "verify_final":    env("MODEL_VERIFY", "openai/gpt-4.1"),
+}
+
+RECHECK_MODELS = {
+    "anthropic":   "openai/gpt-4.1",
+    "openrouter":  "openai/gpt-4.1",
+    "google":      "anthropic/claude-sonnet-4",
+    "openai":      "anthropic/claude-sonnet-4",
 }
 ```
-
-### Sub-task Prompts
-
-6 new prompts in `prompt_manager.py` (all editable via existing prompt editor):
-
-| Prompt Name | Purpose |
-|-------------|---------|
-| `deep_im_extraction` | Extract structured data from IM |
-| `deep_web_research` | Find public company basics |
-| `deep_financials` | Find/verify financial data |
-| `deep_management` | Find management team, ownership |
-| `deep_market` | Market sizing, competitive landscape |
-| `deep_merge` | Merge sub-task results into OnePagerData |
-
-### Frontend: Deep Research Progress
-
-**New component: `DeepResearchProgress.tsx`**
-- Vertical stepper showing all steps
-- Each step: status icon (pending/running/done/error) + label + model badge + duration
-- Partial data arrival shows summary badges
-- Connected to SSE stream
-
-**Changes to input page:**
-- "Research Depth" toggle: Standard vs Deep Research
-- Deep mode uses SSE endpoint, shows progress stepper
 
 ---
 
 ## Implementation Order
 
-### Phase A: Job Persistence (do first — foundation for everything)
+### Phase A: Job Persistence (foundation)
 
-1. `backend/models/job.py` — Job + DeepResearchStep Pydantic models
+1. `backend/models/job.py` — Job + DeepResearchStep + StepVerification models
 2. `backend/services/job_store.py` — SQLite CRUD with aiosqlite
 3. `backend/routers/jobs.py` — REST API for jobs
 4. Modify `backend/routers/research.py` — Create job on research, save results
 5. Modify `backend/routers/generate.py` — Save PPTX to job
 6. `backend/main.py` — Mount jobs router, init DB on startup
-7. `frontend/src/lib/types.ts` — Job types
+7. `frontend/src/lib/types.ts` — Job, DeepResearchStep, StepVerification types
 8. `frontend/src/lib/api.ts` — Job API functions
-9. `frontend/src/app/editor/[id]/page.tsx` — Job-aware editor (replaces sessionStorage)
+9. `frontend/src/app/editor/[id]/page.tsx` — Job-aware editor
 10. `frontend/src/app/jobs/page.tsx` — Job history page
 11. `frontend/src/app/components/JobCard.tsx` — Job list item
-12. Modify `frontend/src/app/page.tsx` — Show recent jobs, redirect to `/editor/{id}`
+12. Modify `frontend/src/app/page.tsx` — Recent jobs, redirect to `/editor/{id}`
 13. Modify `frontend/src/app/layout.tsx` — Add "Jobs" nav link
 
-### Phase B: Deep Research (builds on job persistence)
+### Phase B: Deep Research Pipeline
 
-14. `backend/config/models.py` — Model configuration per sub-task
-15. `backend/services/deep_research.py` — Multi-step orchestrator
-16. Add deep research prompts to `prompt_manager.py`
+14. `backend/config/models.py` — Model config per sub-task + recheck
+15. `backend/services/deep_research.py` — Orchestrator with per-step recheck
+16. Add 8 new prompts to `prompt_manager.py`
 17. `POST /api/jobs/{id}/research/deep` SSE endpoint
-18. `frontend/src/app/components/DeepResearchProgress.tsx` — Progress stepper
-19. Modify `frontend/src/app/page.tsx` — Research depth toggle + SSE integration
 
-## New Dependencies
+### Phase C: Deep Research Frontend
 
-**Backend:** `aiosqlite` (async SQLite — zero-config, no external DB server needed)
-**Frontend:** None (EventSource is built-in browser API)
+18. `frontend/src/app/components/DeepResearchProgress.tsx` — SSE progress stepper
+19. `frontend/src/app/components/DeepResearchResults.tsx` — Results panel
+20. Modify `frontend/src/app/page.tsx` — Depth toggle + SSE
+21. Modify `frontend/src/app/editor/[id]/page.tsx` — Show DeepResearchResults
+22. Update `PromptEditor.tsx` — Group prompts into sections
 
-## File Change Summary
+## Dependencies
 
-| File | Action | Phase |
-|------|--------|-------|
-| `backend/models/job.py` | **NEW** | A |
-| `backend/services/job_store.py` | **NEW** | A |
-| `backend/routers/jobs.py` | **NEW** | A |
-| `backend/routers/research.py` | **EDIT** | A |
-| `backend/routers/generate.py` | **EDIT** | A |
-| `backend/main.py` | **EDIT** | A |
-| `backend/config/__init__.py` | **NEW** | B |
-| `backend/config/models.py` | **NEW** | B |
-| `backend/services/deep_research.py` | **NEW** | B |
-| `backend/services/prompt_manager.py` | **EDIT** | B |
-| `frontend/src/lib/types.ts` | **EDIT** | A |
-| `frontend/src/lib/api.ts` | **EDIT** | A+B |
-| `frontend/src/app/jobs/page.tsx` | **NEW** | A |
-| `frontend/src/app/editor/[id]/page.tsx` | **NEW** | A |
-| `frontend/src/app/editor/page.tsx` | **DELETE** | A |
-| `frontend/src/app/components/JobCard.tsx` | **NEW** | A |
-| `frontend/src/app/components/DeepResearchProgress.tsx` | **NEW** | B |
-| `frontend/src/app/page.tsx` | **EDIT** | A+B |
-| `frontend/src/app/layout.tsx` | **EDIT** | A |
-| `backend/requirements.txt` | **EDIT** | A |
-| `.gitignore` | **EDIT** | A |
+**Backend:** `aiosqlite`
+**Frontend:** None
 
 ## Non-Goals
 
-- No multi-user auth / user accounts — single-user tool
-- No cloud file storage — local disk is fine
-- No real-time collaboration
-- No job queuing system (Celery etc.) — async within FastAPI is sufficient
-- Keep existing standard research mode working (deep is opt-in)
+- No multi-user auth — single-user tool
+- No cloud storage — local disk
+- No job queue (Celery) — async within FastAPI
+- Keep standard research mode as-is
+- No PPTX template changes — deep research feeds the same one-pager

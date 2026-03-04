@@ -2,7 +2,7 @@
 
 **Branch:** `claude/review-progress-5vIvn`
 **Date:** 2026-03-04
-**Status:** Security fixes complete. Next: Persistent Jobs + Deep Research.
+**Status:** Implementing Persistent Jobs + Deep Research (see PLAN.md for full spec).
 
 ---
 
@@ -169,3 +169,28 @@ Multi-step AI pipeline with explicit model selection per sub-task:
 Steps 2-5 run in parallel. Progress streamed via SSE. Each step result saved to job record.
 
 **OpenRouter:** Confirmed — explicit model selection per API call works. Pass model ID in `model` field, that exact model runs. Single API key, different models per call.
+
+### Anti-Hallucination (3 layers)
+
+1. **Prompt-level guards** — Every step prompt enforces "never invent data, return null if unknown, prefix inferences with ~, cite sources"
+2. **Per-step 2nd AI recheck** — Each step's output rechecked by a different model family (Claude→GPT, Gemini→Claude) before proceeding
+3. **Final cross-verification** — Algorithmic checks + AI cross-verification on the merged result, including inter-step consistency checks
+
+### All Prompts Editable (13 total)
+
+5 existing (standard research) + 8 new (deep research sub-tasks + recheck + final verify). All visible and editable via the PromptEditor UI, grouped into Standard / Deep / Verification sections.
+
+### Deep Research Results Frontend
+
+New `DeepResearchResults.tsx` component shows:
+- Per-step details: model used, duration, fields found, sources, recheck result
+- Expandable raw output per step
+- Document downloads (uploaded IM, generated PPTX, JSON export)
+- Overall confidence score and verification status
+
+### Phase C: Frontend
+
+- Deep research progress stepper (SSE-connected, real-time)
+- Deep research results panel above editor
+- Research depth toggle (Standard vs Deep) on input page
+- PromptEditor grouped by category
