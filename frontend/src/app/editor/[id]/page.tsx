@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { OnePagerData, VerificationResult, EMPTY_ONE_PAGER, Job } from "@/lib/types";
 import { getJob, saveJobData, generateJobPptx, getJobImUrl } from "@/lib/api";
 import HeaderSection from "../../components/HeaderSection";
@@ -13,11 +13,15 @@ import CriteriaSection from "../../components/CriteriaSection";
 import RevenueTable from "../../components/RevenueTable";
 import FinancialsTable from "../../components/FinancialsTable";
 import VerificationBanner from "../../components/VerificationBanner";
+import DeepResearchProgress from "../../components/DeepResearchProgress";
+import DeepResearchResults from "../../components/DeepResearchResults";
 
 export default function JobEditorPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const jobId = params.id as string;
+  const isDeepResearch = searchParams.get("deep") === "true";
 
   const [data, setData] = useState<OnePagerData>(EMPTY_ONE_PAGER);
   const [verification, setVerification] = useState<VerificationResult | null>(null);
@@ -29,47 +33,50 @@ export default function JobEditorPage() {
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
   const [genSuccess, setGenSuccess] = useState(false);
+  const [deepResearchActive, setDeepResearchActive] = useState(isDeepResearch);
+  const [showDeepResults, setShowDeepResults] = useState(false);
 
   // Debounce timer ref
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Load job data
-  useEffect(() => {
-    async function loadJob() {
-      try {
-        setLoading(true);
-        setError(null);
-        const jobData = await getJob(jobId);
-        setJob(jobData);
+  // Load / reload job data
+  const loadJob = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const jobData = await getJob(jobId);
+      setJob(jobData);
 
-        // Use edited_data if present, fall back to research_data
-        const onePagerData = jobData.edited_data || jobData.research_data;
-        if (onePagerData) {
-          setData({
-            meta: { ...EMPTY_ONE_PAGER.meta, ...onePagerData.meta },
-            header: { ...EMPTY_ONE_PAGER.header, ...onePagerData.header },
-            investment_thesis: onePagerData.investment_thesis ?? EMPTY_ONE_PAGER.investment_thesis,
-            key_facts: { ...EMPTY_ONE_PAGER.key_facts, ...onePagerData.key_facts },
-            description: onePagerData.description ?? EMPTY_ONE_PAGER.description,
-            product_portfolio: onePagerData.product_portfolio ?? EMPTY_ONE_PAGER.product_portfolio,
-            investment_rationale: { ...EMPTY_ONE_PAGER.investment_rationale, ...onePagerData.investment_rationale },
-            revenue_split: { ...EMPTY_ONE_PAGER.revenue_split, ...onePagerData.revenue_split },
-            financials: { ...EMPTY_ONE_PAGER.financials, ...onePagerData.financials },
-            investment_criteria: { ...EMPTY_ONE_PAGER.investment_criteria, ...onePagerData.investment_criteria },
-          });
-        }
-
-        if (jobData.verification) {
-          setVerification(jobData.verification);
-        }
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed to load job");
-      } finally {
-        setLoading(false);
+      // Use edited_data if present, fall back to research_data
+      const onePagerData = jobData.edited_data || jobData.research_data;
+      if (onePagerData) {
+        setData({
+          meta: { ...EMPTY_ONE_PAGER.meta, ...onePagerData.meta },
+          header: { ...EMPTY_ONE_PAGER.header, ...onePagerData.header },
+          investment_thesis: onePagerData.investment_thesis ?? EMPTY_ONE_PAGER.investment_thesis,
+          key_facts: { ...EMPTY_ONE_PAGER.key_facts, ...onePagerData.key_facts },
+          description: onePagerData.description ?? EMPTY_ONE_PAGER.description,
+          product_portfolio: onePagerData.product_portfolio ?? EMPTY_ONE_PAGER.product_portfolio,
+          investment_rationale: { ...EMPTY_ONE_PAGER.investment_rationale, ...onePagerData.investment_rationale },
+          revenue_split: { ...EMPTY_ONE_PAGER.revenue_split, ...onePagerData.revenue_split },
+          financials: { ...EMPTY_ONE_PAGER.financials, ...onePagerData.financials },
+          investment_criteria: { ...EMPTY_ONE_PAGER.investment_criteria, ...onePagerData.investment_criteria },
+        });
       }
+
+      if (jobData.verification) {
+        setVerification(jobData.verification);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load job");
+    } finally {
+      setLoading(false);
     }
-    loadJob();
   }, [jobId]);
+
+  useEffect(() => {
+    loadJob();
+  }, [loadJob]);
 
   // Debounced auto-save
   const debouncedSave = useCallback(
@@ -206,6 +213,19 @@ export default function JobEditorPage() {
             </a>
           )}
 
+          {/* Deep Research button */}
+          <button
+            onClick={() => setDeepResearchActive(true)}
+            disabled={deepResearchActive}
+            className="text-xs text-cc-mid hover:text-cc-dark border border-cc-mid/30 px-3 py-1.5 rounded-lg
+                       hover:border-cc-mid/60 transition-all flex items-center gap-1.5 disabled:opacity-50"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+            </svg>
+            Run Deep Research
+          </button>
+
           {/* Export JSON button */}
           <button
             onClick={() => {
@@ -227,6 +247,38 @@ export default function JobEditorPage() {
           </button>
         </div>
       </div>
+
+      {/* Deep Research Progress */}
+      {deepResearchActive && (
+        <div className="mb-6">
+          <DeepResearchProgress
+            jobId={jobId}
+            onComplete={async () => {
+              setDeepResearchActive(false);
+              // Reload job to get updated data
+              const updatedJob = await getJob(jobId);
+              setJob(updatedJob);
+              if (updatedJob.edited_data || updatedJob.research_data) {
+                const d = updatedJob.edited_data || updatedJob.research_data;
+                if (d) setData({ ...EMPTY_ONE_PAGER, ...d });
+              }
+              setShowDeepResults(true);
+            }}
+            onError={(msg) => {
+              setDeepResearchActive(false);
+              setGenError(msg);
+            }}
+          />
+        </div>
+      )}
+
+      {/* Deep Research Results */}
+      {(showDeepResults || (job?.deep_research_steps && job.deep_research_steps.length > 0)) &&
+        job?.deep_research_steps && (
+          <div className="mb-6">
+            <DeepResearchResults steps={job.deep_research_steps} jobId={jobId} />
+          </div>
+        )}
 
       {/* Verification Banner */}
       {verification && <VerificationBanner verification={verification} />}

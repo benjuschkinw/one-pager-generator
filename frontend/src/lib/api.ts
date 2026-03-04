@@ -2,7 +2,7 @@
  * API client for the One-Pager Generator backend.
  */
 
-import { OnePagerData, ResearchResponse, PromptDefinition, JobSummary, Job } from "./types";
+import { OnePagerData, ResearchResponse, PromptDefinition, JobSummary, Job, DeepResearchSSEEvent } from "./types";
 
 const API_BASE = "/api";
 
@@ -159,6 +159,92 @@ export function getJobImUrl(id: string): string {
  */
 export function getJobPptxUrl(id: string): string {
   return `${API_BASE}/jobs/${id}/pptx`;
+}
+
+// ---------------------------------------------------------------------------
+// Deep Research (SSE streaming)
+// ---------------------------------------------------------------------------
+
+/**
+ * Start deep research for a job. Connects to the SSE endpoint via fetch
+ * (since EventSource doesn't support POST). Returns an AbortController
+ * so the caller can cancel the stream.
+ */
+export function startDeepResearch(
+  jobId: string,
+  onEvent: (event: string, data: DeepResearchSSEEvent) => void,
+  onComplete: () => void,
+  onError: (error: string) => void,
+): AbortController {
+  const controller = new AbortController();
+
+  (async () => {
+    try {
+      const response = await fetch(`${API_BASE}/jobs/${jobId}/research/deep`, {
+        method: "POST",
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({ detail: response.statusText }));
+        onError(err.detail || "Deep research failed");
+        return;
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        onError("No response stream available");
+        return;
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        // Keep the last potentially incomplete line in the buffer
+        buffer = lines.pop() || "";
+
+        let currentEvent = "message";
+
+        for (const line of lines) {
+          if (line.startsWith("event: ")) {
+            currentEvent = line.slice(7).trim();
+          } else if (line.startsWith("data: ")) {
+            const dataStr = line.slice(6).trim();
+            if (!dataStr) continue;
+            try {
+              const data: DeepResearchSSEEvent = JSON.parse(dataStr);
+              onEvent(currentEvent, data);
+
+              if (currentEvent === "complete" || currentEvent === "error") {
+                if (currentEvent === "complete") {
+                  onComplete();
+                } else {
+                  onError(data.message || "Deep research failed");
+                }
+              }
+            } catch {
+              // Skip malformed JSON
+            }
+            currentEvent = "message";
+          }
+        }
+      }
+
+      // Stream ended without explicit complete event — treat as complete
+      onComplete();
+    } catch (err) {
+      if ((err as Error).name === "AbortError") return;
+      onError(err instanceof Error ? err.message : "Deep research connection failed");
+    }
+  })();
+
+  return controller;
 }
 
 // ---------------------------------------------------------------------------

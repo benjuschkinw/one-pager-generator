@@ -163,6 +163,23 @@ export interface PromptDefinition {
   is_default: boolean;
 }
 
+// ---------------------------------------------------------------------------
+// Deep Research SSE types
+// ---------------------------------------------------------------------------
+
+export interface DeepResearchSSEEvent {
+  step: string;
+  label?: string;
+  status?: string;
+  confidence?: number;
+  message?: string;
+  job_id?: string;
+  model?: string;
+  duration?: number;
+  sources?: string[];
+  fields_found?: number;
+}
+
 export const EMPTY_ONE_PAGER: OnePagerData = {
   meta: { source: "", im_received: "", loi_deadline: "", status: "" },
   header: { label: "One Pager", company_name: "", tagline: "" },

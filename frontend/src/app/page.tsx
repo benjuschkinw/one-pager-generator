@@ -16,6 +16,7 @@ export default function InputPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showPrompts, setShowPrompts] = useState(false);
+  const [researchDepth, setResearchDepth] = useState<"standard" | "deep">("standard");
   const fileRef = useRef<HTMLInputElement>(null);
 
   // Recent jobs
@@ -68,6 +69,7 @@ export default function InputPage() {
     setError(null);
 
     try {
+      // Standard research first — this creates the job
       const response: ResearchResponse = await researchCompany(
         companyName.trim(),
         file || undefined
@@ -75,7 +77,12 @@ export default function InputPage() {
 
       // If the backend returned a job_id, navigate to the job-aware editor
       if (response.job_id) {
-        router.push(`/editor/${response.job_id}`);
+        if (researchDepth === "deep") {
+          // Deep research: redirect with deep=true query param
+          router.push(`/editor/${response.job_id}?deep=true`);
+        } else {
+          router.push(`/editor/${response.job_id}`);
+        }
       } else {
         // Fallback: store in sessionStorage and go to old editor
         sessionStorage.setItem("onePagerData", JSON.stringify(response.data));
@@ -214,6 +221,40 @@ export default function InputPage() {
             </div>
           </div>
 
+          {/* Research Mode Toggle */}
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-500">Research Mode:</span>
+            <div className="flex bg-gray-100 rounded-lg p-0.5">
+              <button
+                onClick={() => setResearchDepth("standard")}
+                className={`px-3 py-1 text-xs rounded-md transition-all ${
+                  researchDepth === "standard"
+                    ? "bg-white text-cc-dark shadow-sm font-medium"
+                    : "text-gray-500 hover:text-gray-700"
+                }`}
+                disabled={loading}
+              >
+                Standard
+              </button>
+              <button
+                onClick={() => setResearchDepth("deep")}
+                className={`px-3 py-1 text-xs rounded-md transition-all ${
+                  researchDepth === "deep"
+                    ? "bg-white text-cc-dark shadow-sm font-medium"
+                    : "text-gray-500 hover:text-gray-700"
+                }`}
+                disabled={loading}
+              >
+                Deep
+              </button>
+            </div>
+          </div>
+          {researchDepth === "deep" && (
+            <p className="text-xs text-gray-400 -mt-3">
+              Deep research runs additional AI analysis after initial research. Multi-step pipeline with cross-verification (2-5 min).
+            </p>
+          )}
+
           {/* Error */}
           {error && (
             <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
@@ -238,7 +279,7 @@ export default function InputPage() {
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
-                Researching with AI...
+                {researchDepth === "deep" ? "Starting deep research..." : "Researching with AI..."}
               </>
             ) : (
               <>
@@ -254,7 +295,9 @@ export default function InputPage() {
             <div className="flex items-center gap-3 p-3 bg-cc-surface rounded-lg">
               <div className="w-2 h-2 bg-cc-mid rounded-full animate-pulse" />
               <p className="text-xs text-gray-500">
-                AI is researching via web search{file ? " and IM analysis" : ""}. This typically takes 30-60 seconds.
+                {researchDepth === "deep"
+                  ? "Creating job and preparing deep research pipeline..."
+                  : `AI is researching via web search${file ? " and IM analysis" : ""}. This typically takes 30-60 seconds.`}
               </p>
             </div>
           )}
