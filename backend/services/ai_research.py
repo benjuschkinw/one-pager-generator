@@ -70,16 +70,27 @@ def _safe_format(template: str, **kwargs) -> str:
         return template.format_map(SafeDict(**kwargs))
 
 
+def _sanitize_company_name(name: str) -> str:
+    """Sanitize company name to prevent prompt injection via user input."""
+    import re
+    # Strip control characters
+    sanitized = re.sub(r'[\x00-\x1f\x7f]', '', name)
+    # Cap length to prevent abuse
+    sanitized = sanitized[:200].strip()
+    return sanitized or "Unknown Company"
+
+
 def _build_user_prompt(company_name: str, im_text: Optional[str] = None) -> str:
     """Build the user prompt for research using editable prompt templates."""
     json_schema = _build_json_schema()
+    safe_company = _sanitize_company_name(company_name)
 
     if im_text:
         truncated = im_text[:50000] if len(im_text) > 50000 else im_text
         template = get_prompt_template("research_user_with_im")
         return _safe_format(
             template,
-            company_name=company_name,
+            company_name=safe_company,
             im_text=truncated,
             json_schema=json_schema,
         )
@@ -87,7 +98,7 @@ def _build_user_prompt(company_name: str, im_text: Optional[str] = None) -> str:
         template = get_prompt_template("research_user_no_im")
         return _safe_format(
             template,
-            company_name=company_name,
+            company_name=safe_company,
             json_schema=json_schema,
         )
 

@@ -70,6 +70,12 @@ export async function generatePptx(data: OnePagerData): Promise<void> {
 // Prompt management
 // ---------------------------------------------------------------------------
 
+/** Admin key for prompt mutation endpoints. Read from sessionStorage. */
+function getAdminHeaders(): Record<string, string> {
+  const key = typeof window !== "undefined" ? sessionStorage.getItem("adminApiKey") : null;
+  return key ? { "X-Admin-Key": key } : {};
+}
+
 /**
  * Fetch all editable prompts.
  */
@@ -82,7 +88,7 @@ export async function getPrompts(): Promise<PromptDefinition[]> {
 }
 
 /**
- * Update a prompt's template text.
+ * Update a prompt's template text. Requires admin key in sessionStorage.
  */
 export async function updatePrompt(
   name: string,
@@ -90,37 +96,42 @@ export async function updatePrompt(
 ): Promise<PromptDefinition> {
   const res = await fetch(`${API_BASE}/prompts/${name}`, {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...getAdminHeaders() },
     body: JSON.stringify({ template }),
   });
   if (!res.ok) {
-    throw new Error("Failed to update prompt");
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Failed to update prompt");
   }
   return res.json();
 }
 
 /**
- * Reset a single prompt to its default.
+ * Reset a single prompt to its default. Requires admin key in sessionStorage.
  */
 export async function resetPrompt(name: string): Promise<PromptDefinition> {
   const res = await fetch(`${API_BASE}/prompts/${name}/reset`, {
     method: "POST",
+    headers: { ...getAdminHeaders() },
   });
   if (!res.ok) {
-    throw new Error("Failed to reset prompt");
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Failed to reset prompt");
   }
   return res.json();
 }
 
 /**
- * Reset all prompts to defaults.
+ * Reset all prompts to defaults. Requires admin key in sessionStorage.
  */
 export async function resetAllPrompts(): Promise<PromptDefinition[]> {
   const res = await fetch(`${API_BASE}/prompts/reset`, {
     method: "POST",
+    headers: { ...getAdminHeaders() },
   });
   if (!res.ok) {
-    throw new Error("Failed to reset prompts");
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Failed to reset prompts");
   }
   return res.json();
 }

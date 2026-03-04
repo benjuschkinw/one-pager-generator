@@ -143,10 +143,93 @@ Full pipeline tested and verified:
 
 ---
 
-## Architecture Notes
+## Security Fixes (Gemini Code Review — PR #1)
+
+| # | Severity | Issue | Fix |
+|---|----------|-------|-----|
+| 1 | **Critical** | `/api/prompts` mutation endpoints publicly accessible | Added `X-Admin-Key` header auth; requires `ADMIN_API_KEY` env var. If unset, mutations are disabled entirely. GET (read-only) remains open. |
+| 2 | **Critical** | Prompt injection via editable templates + untrusted input | Added `_sanitize_company_name()` (strips control chars, caps at 200 chars). Added injection guardrail to system prompt instructing model to treat inputs as data only. |
+| 3 | **Medium** | HTTP header injection via redundant `.replace('"', "'")` in filename | Removed redundant call; `_sanitize_filename()` already strips all control chars and non-safe characters. |
+| 4 | **Low** | Unused `copy` import in `prompt_manager.py` | Removed. |
+
+---
+
+## Full Architecture Reference
+
+### System Overview
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  FRONTEND (Next.js 14+ / TypeScript / Tailwind CSS)          │
+│  Port: 3001                                                   │
+│                                                                │
+│  / (Input Page)         /editor (Editor Page)                  │
+│  ┌─────────────────┐   ┌──────────────────────────────────┐   │
+│  │ Company Name     │   │ VerificationBanner               │   │
+│  │ PDF Upload       │   │ HeaderSection                    │   │
+│  │ PromptEditor     │──→│ KeyFactsSection                  │   │
+│  │ "Research" btn   │   │ BulletEditor (desc + portfolio)  │   │
+│  └─────────────────┘   │ RationaleSection (pros/cons)     │   │
+│                         │ RevenueTable                     │   │
+│                         │ FinancialsTable                  │   │
+│                         │ CriteriaSection (12 toggles)     │   │
+│                         │ GenerateButton → PPTX download   │   │
+│                         └──────────────────────────────────┘   │
+└──────────────────────────────────────────────────────────────┘
+                              │ HTTP
+┌──────────────────────────────────────────────────────────────┐
+│  BACKEND (FastAPI / Python)                                    │
+│  Port: 8000                                                    │
+│                                                                │
+│  Routers:                                                      │
+│  ├── POST /api/research  → ai_research.py + verification.py   │
+│  ├── POST /api/generate  → pptx_generator.py                  │
+│  ├── GET  /api/prompts   → prompt_manager.py (read-only)      │
+│  ├── PUT  /api/prompts/* → prompt_manager.py (auth required)  │
+│  ├── GET  /api/providers → ai_research.py                     │
+│  └── GET  /api/health                                          │
+│                                                                │
+│  Services:                                                     │
+│  ├── ai_research.py     → Claude/OpenRouter multi-turn loop   │
+│  ├── pdf_extractor.py   → pypdfium2 + pdfplumber fallback     │
+│  ├── verification.py    → Algorithmic + AI cross-check        │
+│  ├── pptx_generator.py  → python-pptx template population     │
+│  ├── chart_generator.py → matplotlib donut + bar charts       │
+│  └── prompt_manager.py  → In-memory prompt store              │
+│                                                                │
+│  External APIs:                                                │
+│  ├── Anthropic (Claude Opus 4) — research with web search     │
+│  ├── OpenRouter (GPT-4.1)      — cross-verification           │
+│  └── OpenRouter (any model)    — fallback research provider    │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Data Flow
+
+1. **Input**: User enters company name + optional IM PDF
+2. **Research**: PDF extracted → AI research (Claude + web search, up to 15 turns)
+3. **Parsing**: JSON extracted with 4-strategy fallback cascade
+4. **Verification**: Algorithmic checks + cross-model AI verification
+5. **Editor**: User reviews/edits all fields in 3-column form
+6. **Generate**: PPTX populated from template with charts embedded as PNG
+
+### Data Model (`OnePagerData`)
+
+Root fields: `meta`, `header`, `investment_thesis`, `key_facts`, `description[]`, `product_portfolio[]`, `investment_rationale`, `revenue_split`, `financials`, `investment_criteria` (12 criteria with fulfilled/questions/not_interest).
+
+### Environment Variables
+
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `ANTHROPIC_API_KEY` | One of these | Claude API for research + web search |
+| `OPENROUTER_API_KEY` | required | OpenRouter for verification + fallback research |
+| `ADMIN_API_KEY` | Optional | Enables prompt editing via API |
+
+### Architecture Notes
 
 - Prompts stored **in-memory** per process. Backend restart resets to defaults.
 - Prompt templates use `str.format()` with `_safe_format()` fallback for robustness.
 - Frontend validates PDF type + size before uploading.
 - IM text truncated to 50k chars to stay within token limits.
 - Cross-model verification (Claude → GPT-4.1) prevents correlated hallucination errors.
+- Prompt mutations require `ADMIN_API_KEY` env var + `X-Admin-Key` header.

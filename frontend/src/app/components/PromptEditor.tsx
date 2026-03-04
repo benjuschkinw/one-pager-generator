@@ -20,8 +20,12 @@ export default function PromptEditor() {
   const [expandedPrompt, setExpandedPrompt] = useState<string | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
   const [editedTemplates, setEditedTemplates] = useState<Record<string, string>>({});
+  const [adminKey, setAdminKey] = useState("");
 
   useEffect(() => {
+    // Load saved admin key
+    const saved = sessionStorage.getItem("adminApiKey") || "";
+    setAdminKey(saved);
     fetchPrompts();
   }, []);
 
@@ -123,8 +127,26 @@ export default function PromptEditor() {
     );
   }
 
+  function handleAdminKeyChange(value: string) {
+    setAdminKey(value);
+    sessionStorage.setItem("adminApiKey", value);
+  }
+
   return (
     <div className="space-y-3">
+      {/* Admin key input */}
+      <div className="flex items-center gap-2">
+        <label className="text-xs text-gray-500 whitespace-nowrap">Admin Key:</label>
+        <input
+          type="password"
+          value={adminKey}
+          onChange={(e) => handleAdminKeyChange(e.target.value)}
+          placeholder="Required to edit prompts"
+          className="flex-1 px-2 py-1 text-xs border border-gray-200 rounded-lg
+                     focus:ring-2 focus:ring-cc-mid focus:border-cc-mid"
+        />
+      </div>
+
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-gray-700">
           AI Prompts

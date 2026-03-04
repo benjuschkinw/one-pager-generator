@@ -39,8 +39,7 @@ async def generate(request: GenerateRequest):
         raise HTTPException(500, "PPTX generation failed. Please try again.")
 
     company = _sanitize_filename(request.data.header.company_name or "Company")
-    # Escape quotes in filename to prevent header injection
-    filename = f"One_Pager_{company}.pptx".replace('"', "'")
+    filename = f"One_Pager_{company}.pptx"
 
     return Response(
         content=pptx_bytes,
