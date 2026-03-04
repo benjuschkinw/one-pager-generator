@@ -1,140 +1,335 @@
-# Plan: Structured IM Extraction, Editable Prompts & Optimal Model Selection
+# Plan: Persistent Jobs + Deep Research
 
 ## Overview
 
-Three interconnected improvements:
-1. Integrate the detailed IM-to-One-Pager mapping spec into the research prompts
-2. Make all prompts viewable and editable in the UI
-3. Use the best model for each pipeline step (money is not the issue)
+Two interconnected features:
+1. **Persistent Job Storage** — Every research run becomes a "job" with uploaded docs, AI research, extracted data, PPTX output, and deep research all saved and browsable
+2. **Deep Research** — Multi-step AI pipeline with per-step model selection via OpenRouter
 
 ---
 
-## Part 1: Structured IM Extraction Prompts
+## Part 1: Persistent Job Storage
 
 ### Problem
-The current IM extraction prompt is generic: "extract from the IM." The user's spec defines a precise module-by-module mapping from IM chapters to One Pager fields, with specific transformation logic.
 
-### Changes
+Currently all data lives in browser `sessionStorage` — it's lost on refresh, can't be shared, and there's no history. Users can't go back to previous research runs to compare results or re-download artifacts.
 
-**`backend/services/ai_research.py`** — Rewrite `_build_user_prompt()` when `im_text` is provided:
+### Data Model
 
-Replace the generic IM source instructions with structured module-by-module extraction:
+**New file: `backend/models/job.py`**
+
+```python
+class Job:
+    id: str                    # UUID
+    company_name: str
+    created_at: datetime
+    updated_at: datetime
+    status: "pending" | "researching" | "completed" | "failed"
+
+    # Inputs
+    im_filename: str | None    # Original uploaded filename
+    im_file_path: str | None   # Path to stored PDF on disk
+    im_text: str | None        # Extracted text from PDF
+
+    # Research config
+    provider: str | None
+    model: str | None
+    research_mode: "standard" | "deep"
+
+    # Outputs
+    research_data: OnePagerData | None        # AI research result
+    verification: VerificationResult | None   # Cross-verification
+    deep_research_steps: list[DeepResearchStep] | None  # Per-step results (deep mode)
+    edited_data: OnePagerData | None          # User-edited version
+    pptx_file_path: str | None               # Path to generated PPTX
+
+class DeepResearchStep:
+    step_name: str             # e.g. "im_extraction", "web_research"
+    model_used: str            # e.g. "anthropic/claude-opus-4"
+    status: "pending" | "running" | "done" | "error"
+    started_at: datetime | None
+    completed_at: datetime | None
+    result_json: dict | None   # Partial result from this step
+    error_message: str | None
+```
+
+### Storage
+
+**SQLite + aiosqlite** — lightweight, zero-config, perfect for a single-user tool:
+- `backend/services/job_store.py` — CRUD operations for jobs
+- DB file: `data/jobs.db` (gitignored)
+- File uploads stored in: `data/uploads/{job_id}/` (original PDFs)
+- Generated PPTX stored in: `data/outputs/{job_id}/` (PPTX files)
+
+Tables:
+```sql
+CREATE TABLE jobs (
+    id TEXT PRIMARY KEY,
+    company_name TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    im_filename TEXT,
+    im_file_path TEXT,
+    im_text TEXT,
+    provider TEXT,
+    model TEXT,
+    research_mode TEXT DEFAULT 'standard',
+    research_data TEXT,        -- JSON
+    verification TEXT,         -- JSON
+    deep_research_steps TEXT,  -- JSON array
+    edited_data TEXT,          -- JSON
+    pptx_file_path TEXT
+);
+```
+
+### API Endpoints
+
+**New file: `backend/routers/jobs.py`**
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/jobs` | List all jobs (summary: id, company, status, created_at, has_im, has_pptx) |
+| `GET` | `/api/jobs/{id}` | Full job details (all data, verification, deep research steps) |
+| `DELETE` | `/api/jobs/{id}` | Delete job + associated files |
+| `GET` | `/api/jobs/{id}/im` | Download the original uploaded IM PDF |
+| `GET` | `/api/jobs/{id}/pptx` | Download the generated PPTX |
+| `PUT` | `/api/jobs/{id}/data` | Save edited OnePagerData back to the job |
+| `POST` | `/api/jobs/{id}/generate` | Generate PPTX from job's edited_data, save to job |
+
+### Modified Research Flow
+
+**Current flow:**
+```
+POST /api/research → returns JSON → sessionStorage → /editor
+```
+
+**New flow:**
+```
+POST /api/research → creates job → saves inputs → runs AI → saves outputs → returns job_id
+Frontend redirects to /editor/{job_id}
+All edits auto-save to PUT /api/jobs/{id}/data
+PPTX generation saves to job via POST /api/jobs/{id}/generate
+```
+
+The existing `POST /api/research` endpoint is modified to:
+1. Create a job record with status "pending"
+2. Store the uploaded PDF in `data/uploads/{job_id}/`
+3. Run research (sets status "researching")
+4. Save research_data + verification to job (sets status "completed")
+5. Return `{ job_id, data, verification }` (backwards-compatible, adds job_id)
+
+### Frontend Changes
+
+**New page: `/jobs` — Job History**
+- Table/card list of all previous research jobs
+- Each row: company name, date, status badge, has IM icon, has PPTX icon
+- Click → navigates to `/editor/{job_id}`
+- Delete button per job
+
+**Modified: `/editor` → `/editor/[id]` — Job-aware Editor**
+- Dynamic route: loads job data from `GET /api/jobs/{id}` instead of sessionStorage
+- Auto-saves edits to backend via debounced `PUT /api/jobs/{id}/data`
+- "Download IM" button (if job has IM)
+- "Download PPTX" button (if job has generated PPTX)
+- Generate button calls `POST /api/jobs/{id}/generate`
+
+**Modified: `/` — Input Page**
+- After research completes, redirects to `/editor/{job_id}` instead of `/editor`
+- Add "Recent Jobs" section below the form showing last 5 jobs
+
+**New component: `JobCard.tsx`**
+- Compact card showing: company name, date, status, action icons (view, download IM, download PPTX, delete)
+
+### File Structure
 
 ```
-Module 1 — Header: Create project name + 15-word Company Headline
-Module 2 — Financial Extraction: Revenue + Adj. EBITDA for [Year-2]A, [Year-1]A, [Current]E, [Year+1]P–[Year+3]P. Calculate EBITDA margins.
-Module 3 — Rationale: 3 specific investment rationales, bold keywords, include ≥1 risk factor
-Module 4 — Revenue Split: List "Revenue Split by [Category]" ensuring total = 100%
-Module 5 — Criteria Checklist: Evaluate 6 core criteria with Fulfilled/Not Fulfilled logic
+data/                          # gitignored
+├── jobs.db                    # SQLite database
+├── uploads/
+│   └── {job_id}/
+│       └── original.pdf       # Uploaded IM
+└── outputs/
+    └── {job_id}/
+        └── one_pager.pptx     # Generated PPTX
 ```
 
-Also include the IM chapter → One Pager mapping table so the AI knows where to look:
-- "Executive Summary" → Description (summarize 3-5 pages into 2-3 sentences)
-- "Key Investment Highlights" → Rationale (top 2-3 Plus, 2-3 Minus)
-- "Financials" chapter → Key Financials (P&L tables)
-- "Market Positioning" / "Revenue Analysis" → Revenue Split
-- "Investment Highlights" + "Organization" → Investment Criteria
-
-**`backend/services/ai_research.py`** — Update `RESEARCH_SYSTEM_PROMPT`:
-
-Add the role framing: "Act as a Senior M&A Associate at an Investment firm. Review the provided IM and extract content for a standardized One Pager."
-
-Reinforce: "Professional, clinical, data-driven. Avoid marketing fluff."
-
 ---
 
-## Part 2: Editable Prompts in the UI
+## Part 2: Deep Research (builds on job persistence)
 
-### Architecture
+### OpenRouter Model Routing
 
-**Backend: Prompt storage & API**
+**Confirmed:** OpenRouter supports explicit model selection per API call. Pass a model ID like `anthropic/claude-opus-4` in the `model` field → that exact model runs. Single API key, different models per call.
 
-Create **`backend/services/prompt_manager.py`**:
-- Store all prompts as a dict/config (keyed by name, e.g. `research_system`, `research_user_im`, `research_user_no_im`, `verification_system`)
-- Each prompt has: `name`, `description`, `template` (the actual prompt text with `{placeholders}`)
-- Default prompts are hardcoded constants (the current ones, improved per Part 1)
-- Prompts are stored in-memory per session (no database needed for now)
-- Functions: `get_prompts()`, `get_prompt(name)`, `update_prompt(name, template)`, `reset_prompt(name)`
+**Constraint:** Web search only works via Anthropic's native API (not OpenRouter). Steps needing web search must use the Anthropic client directly.
 
-Create **`backend/routers/prompts.py`**:
-- `GET /api/prompts` — List all prompt names + descriptions + current templates
-- `GET /api/prompts/{name}` — Get single prompt
-- `PUT /api/prompts/{name}` — Update a prompt template
-- `POST /api/prompts/{name}/reset` — Reset to default
+### Pipeline
 
-Update **`backend/services/ai_research.py`**:
-- Import prompts from `prompt_manager` instead of module-level constants
-- `_build_user_prompt()` and system prompt read from `prompt_manager.get_prompt()`
+**New file: `backend/services/deep_research.py`**
 
-Update **`backend/main.py`**:
-- Mount the new prompts router
+| Step | Sub-task | Model | Why |
+|------|----------|-------|-----|
+| 1 | **IM Extraction** (if PDF) | `anthropic/claude-opus-4` via OpenRouter | Best at long doc analysis |
+| 2 | **Web Research** | `claude-opus-4` via Anthropic API | Needs web search |
+| 3 | **Financial Deep-Dive** | `claude-opus-4` via Anthropic API | Needs web search for registries |
+| 4 | **Management & Org** | `claude-opus-4` via Anthropic API | Needs web search for LinkedIn |
+| 5 | **Market & Competitive** | `google/gemini-2.5-pro-preview` via OpenRouter | Strong synthesis, large context |
+| 6 | **Merge & Synthesize** | `anthropic/claude-opus-4` via OpenRouter | Best structured output |
+| 7 | **Cross-Verify** | `openai/gpt-4.1` via OpenRouter | Cross-model diversity |
 
-**Frontend: Prompt editor UI**
+```
+                    ┌──────────────┐
+                    │ 1. IM Extract│ (if PDF provided)
+                    └──────┬───────┘
+                           │
+            ┌──────────────┼──────────────┬─────────────────┐
+            ▼              ▼              ▼                 ▼
+    ┌──────────────┐ ┌──────────┐ ┌────────────────┐ ┌──────────────┐
+    │ 2. Web       │ │ 3. Fin   │ │ 4. Management  │ │ 5. Market &  │
+    │   Research   │ │ Deep-Dive│ │    & Org       │ │ Competitive  │
+    └──────┬───────┘ └────┬─────┘ └───────┬────────┘ └──────┬───────┘
+           └──────────────┼───────────────┘                  │
+                          ▼                                  │
+                    ┌──────────────┐◄────────────────────────┘
+                    │ 6. Merge &   │
+                    │   Synthesize │
+                    └──────┬───────┘
+                           ▼
+                    ┌──────────────┐
+                    │ 7. Verify    │
+                    └──────────────┘
+```
 
-Create **`frontend/src/app/components/PromptEditor.tsx`**:
-- Collapsible panel/drawer accessible from the input page (gear icon or "Advanced" toggle)
-- Lists all prompts with their descriptions
-- Each prompt is a labeled, resizable textarea
-- "Reset to Default" button per prompt
-- Changes are sent to `PUT /api/prompts/{name}` on blur or save
+Steps 2-5 run in parallel via `asyncio.gather`. Each step's result is saved to `deep_research_steps` in the job record as it completes.
 
-Update **`frontend/src/lib/api.ts`**:
-- Add `getPrompts()`, `updatePrompt(name, template)`, `resetPrompt(name)` functions
+### SSE Progress Streaming
 
-Update **`frontend/src/app/page.tsx`**:
-- Add a "Prompts" or "Advanced Settings" toggle/button below the main form
-- Render `PromptEditor` when toggled open
+**New endpoint: `POST /api/jobs/{id}/research/deep`** (returns SSE stream)
 
----
+The job must already exist (created by the initial `POST /api/research` or a new `POST /api/jobs` endpoint). Deep research streams progress events:
 
-## Part 3: Optimal Model Selection
+```
+event: progress
+data: {"step": "im_extraction", "label": "Extracting IM document...", "status": "running"}
 
-### Analysis
+event: step_complete
+data: {"step": "web_research", "fields_found": ["header.tagline", "key_facts.hq"]}
 
-The pipeline has 3 AI-intensive steps. For each, the best model depends on the task:
+event: complete
+data: {"job_id": "abc-123"}
 
-| Step | Current Model | Recommended | Rationale |
-|------|--------------|-------------|-----------|
-| **Research (with IM)** | Claude Sonnet 4 | **Claude Opus 4** | Complex document analysis, structured extraction from 50+ page IMs. Opus excels at careful, thorough analysis of long documents. Sonnet sometimes misses subtleties in financial tables. |
-| **Research (no IM, web search)** | Claude Sonnet 4 | **Claude Opus 4** | Web search + synthesis. Opus produces more accurate financial data and is less likely to hallucinate. Web search is Anthropic-only anyway. |
-| **Verification** | GPT-4.1 (via OpenRouter) | **GPT-4.1** (keep as-is) | Cross-model verification is the key value here. GPT-4.1 is strong at structured analysis and catches different errors than Claude. The model family diversity matters more than raw capability. |
+event: error
+data: {"step": "financials", "message": "Timed out, using partial data"}
+```
 
-### Changes
+Each step completion updates the job record in the database, so progress is persisted even if the browser disconnects.
 
-**`backend/services/ai_research.py`**:
-- Change `DEFAULT_MODELS["anthropic"]` from `claude-sonnet-4-20250514` to `claude-opus-4-20250514`
-- Change `DEFAULT_MODELS["openrouter"]` from `anthropic/claude-sonnet-4` to `anthropic/claude-opus-4`
-- Update the provider model lists to show Opus first (as default/recommended)
+### Model Configuration
 
-**`backend/services/verification.py`**:
-- Keep GPT-4.1 as verification model (correct choice for cross-model diversity)
-- No changes needed
+**New file: `backend/config/models.py`**
 
-**Frontend model selector** (if it exists in provider dropdown):
-- Update default selection to show Opus as recommended
+```python
+DEEP_RESEARCH_MODELS = {
+    "im_extraction": env("MODEL_IM_EXTRACTION", "anthropic/claude-opus-4"),
+    "web_research": "anthropic",        # Must use Anthropic API for web search
+    "financials": "anthropic",           # Must use Anthropic API for web search
+    "management": "anthropic",           # Must use Anthropic API for web search
+    "market": env("MODEL_MARKET", "google/gemini-2.5-pro-preview"),
+    "merge": env("MODEL_MERGE", "anthropic/claude-opus-4"),
+    "verify": env("MODEL_VERIFY", "openai/gpt-4.1"),
+}
+```
 
----
+### Sub-task Prompts
 
-## File Change Summary
+6 new prompts in `prompt_manager.py` (all editable via existing prompt editor):
 
-| File | Action |
-|------|--------|
-| `backend/services/prompt_manager.py` | **NEW** — Prompt storage, defaults, get/update/reset |
-| `backend/routers/prompts.py` | **NEW** — REST API for prompts |
-| `backend/services/ai_research.py` | **EDIT** — Use prompt_manager, upgrade defaults to Opus, improve IM extraction prompt |
-| `backend/main.py` | **EDIT** — Mount prompts router |
-| `frontend/src/app/components/PromptEditor.tsx` | **NEW** — Prompt editing UI |
-| `frontend/src/lib/api.ts` | **EDIT** — Add prompt API functions |
-| `frontend/src/app/page.tsx` | **EDIT** — Add prompt editor toggle |
+| Prompt Name | Purpose |
+|-------------|---------|
+| `deep_im_extraction` | Extract structured data from IM |
+| `deep_web_research` | Find public company basics |
+| `deep_financials` | Find/verify financial data |
+| `deep_management` | Find management team, ownership |
+| `deep_market` | Market sizing, competitive landscape |
+| `deep_merge` | Merge sub-task results into OnePagerData |
+
+### Frontend: Deep Research Progress
+
+**New component: `DeepResearchProgress.tsx`**
+- Vertical stepper showing all steps
+- Each step: status icon (pending/running/done/error) + label + model badge + duration
+- Partial data arrival shows summary badges
+- Connected to SSE stream
+
+**Changes to input page:**
+- "Research Depth" toggle: Standard vs Deep Research
+- Deep mode uses SSE endpoint, shows progress stepper
 
 ---
 
 ## Implementation Order
 
-1. Create `prompt_manager.py` with improved prompts (Part 1 + Part 2 backend)
-2. Create `routers/prompts.py` API endpoints (Part 2 backend)
-3. Update `ai_research.py` to use prompt_manager + upgrade models (Part 1 + Part 3)
-4. Update `main.py` to mount new router
-5. Add prompt API functions to `api.ts` (Part 2 frontend)
-6. Create `PromptEditor.tsx` component (Part 2 frontend)
-7. Update `page.tsx` to include prompt editor toggle (Part 2 frontend)
+### Phase A: Job Persistence (do first — foundation for everything)
+
+1. `backend/models/job.py` — Job + DeepResearchStep Pydantic models
+2. `backend/services/job_store.py` — SQLite CRUD with aiosqlite
+3. `backend/routers/jobs.py` — REST API for jobs
+4. Modify `backend/routers/research.py` — Create job on research, save results
+5. Modify `backend/routers/generate.py` — Save PPTX to job
+6. `backend/main.py` — Mount jobs router, init DB on startup
+7. `frontend/src/lib/types.ts` — Job types
+8. `frontend/src/lib/api.ts` — Job API functions
+9. `frontend/src/app/editor/[id]/page.tsx` — Job-aware editor (replaces sessionStorage)
+10. `frontend/src/app/jobs/page.tsx` — Job history page
+11. `frontend/src/app/components/JobCard.tsx` — Job list item
+12. Modify `frontend/src/app/page.tsx` — Show recent jobs, redirect to `/editor/{id}`
+13. Modify `frontend/src/app/layout.tsx` — Add "Jobs" nav link
+
+### Phase B: Deep Research (builds on job persistence)
+
+14. `backend/config/models.py` — Model configuration per sub-task
+15. `backend/services/deep_research.py` — Multi-step orchestrator
+16. Add deep research prompts to `prompt_manager.py`
+17. `POST /api/jobs/{id}/research/deep` SSE endpoint
+18. `frontend/src/app/components/DeepResearchProgress.tsx` — Progress stepper
+19. Modify `frontend/src/app/page.tsx` — Research depth toggle + SSE integration
+
+## New Dependencies
+
+**Backend:** `aiosqlite` (async SQLite — zero-config, no external DB server needed)
+**Frontend:** None (EventSource is built-in browser API)
+
+## File Change Summary
+
+| File | Action | Phase |
+|------|--------|-------|
+| `backend/models/job.py` | **NEW** | A |
+| `backend/services/job_store.py` | **NEW** | A |
+| `backend/routers/jobs.py` | **NEW** | A |
+| `backend/routers/research.py` | **EDIT** | A |
+| `backend/routers/generate.py` | **EDIT** | A |
+| `backend/main.py` | **EDIT** | A |
+| `backend/config/__init__.py` | **NEW** | B |
+| `backend/config/models.py` | **NEW** | B |
+| `backend/services/deep_research.py` | **NEW** | B |
+| `backend/services/prompt_manager.py` | **EDIT** | B |
+| `frontend/src/lib/types.ts` | **EDIT** | A |
+| `frontend/src/lib/api.ts` | **EDIT** | A+B |
+| `frontend/src/app/jobs/page.tsx` | **NEW** | A |
+| `frontend/src/app/editor/[id]/page.tsx` | **NEW** | A |
+| `frontend/src/app/editor/page.tsx` | **DELETE** | A |
+| `frontend/src/app/components/JobCard.tsx` | **NEW** | A |
+| `frontend/src/app/components/DeepResearchProgress.tsx` | **NEW** | B |
+| `frontend/src/app/page.tsx` | **EDIT** | A+B |
+| `frontend/src/app/layout.tsx` | **EDIT** | A |
+| `backend/requirements.txt` | **EDIT** | A |
+| `.gitignore` | **EDIT** | A |
+
+## Non-Goals
+
+- No multi-user auth / user accounts — single-user tool
+- No cloud file storage — local disk is fine
+- No real-time collaboration
+- No job queuing system (Celery etc.) — async within FastAPI is sufficient
+- Keep existing standard research mode working (deep is opt-in)
