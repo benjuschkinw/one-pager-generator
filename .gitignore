@@ -9,6 +9,9 @@ build/
 # Backend outputs
 backend/outputs/
 
+# Job data (SQLite DB, uploads, generated files)
+data/
+
 # Node
 frontend/node_modules/
 frontend/.next/

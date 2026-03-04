@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { researchCompany } from "@/lib/api";
-import { ResearchResponse } from "@/lib/types";
+import { researchCompany, listJobs, deleteJob } from "@/lib/api";
+import { ResearchResponse, JobSummary } from "@/lib/types";
 import PromptEditor from "./components/PromptEditor";
+import JobCard from "./components/JobCard";
 
 const MAX_FILE_SIZE_MB = 20;
 
@@ -16,6 +17,25 @@ export default function InputPage() {
   const [error, setError] = useState<string | null>(null);
   const [showPrompts, setShowPrompts] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // Recent jobs
+  const [recentJobs, setRecentJobs] = useState<JobSummary[]>([]);
+  const [jobsLoading, setJobsLoading] = useState(true);
+
+  useEffect(() => {
+    async function fetchRecentJobs() {
+      try {
+        const jobs = await listJobs();
+        jobs.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+        setRecentJobs(jobs.slice(0, 5));
+      } catch {
+        // Silently fail — recent jobs is optional
+      } finally {
+        setJobsLoading(false);
+      }
+    }
+    fetchRecentJobs();
+  }, []);
 
   function validateFile(f: File): boolean {
     if (!f.name.toLowerCase().endsWith(".pdf")) {
@@ -52,15 +72,31 @@ export default function InputPage() {
         companyName.trim(),
         file || undefined
       );
-      sessionStorage.setItem("onePagerData", JSON.stringify(response.data));
-      if (response.verification) {
-        sessionStorage.setItem("verification", JSON.stringify(response.verification));
+
+      // If the backend returned a job_id, navigate to the job-aware editor
+      if (response.job_id) {
+        router.push(`/editor/${response.job_id}`);
+      } else {
+        // Fallback: store in sessionStorage and go to old editor
+        sessionStorage.setItem("onePagerData", JSON.stringify(response.data));
+        if (response.verification) {
+          sessionStorage.setItem("verification", JSON.stringify(response.verification));
+        }
+        router.push("/editor");
       }
-      router.push("/editor");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Research failed");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleDeleteJob(id: string) {
+    try {
+      await deleteJob(id);
+      setRecentJobs((prev) => prev.filter((j) => j.id !== id));
+    } catch {
+      // Silently fail
     }
   }
 
@@ -239,10 +275,7 @@ export default function InputPage() {
         </button>
 
         <button
-          onClick={() => {
-            sessionStorage.removeItem("onePagerData");
-            router.push("/editor");
-          }}
+          onClick={() => router.push("/editor")}
           className="text-xs text-gray-400 hover:text-cc-mid transition-colors"
         >
           Skip to manual editor
@@ -253,6 +286,26 @@ export default function InputPage() {
       {showPrompts && (
         <div className="mt-4 bg-white rounded-xl shadow-sm border border-gray-200/80 p-6">
           <PromptEditor />
+        </div>
+      )}
+
+      {/* Recent Jobs */}
+      {!jobsLoading && recentJobs.length > 0 && (
+        <div className="mt-8">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-cc-dark">Recent Jobs</h3>
+            <button
+              onClick={() => router.push("/jobs")}
+              className="text-xs text-gray-400 hover:text-cc-mid transition-colors"
+            >
+              View all
+            </button>
+          </div>
+          <div className="space-y-2">
+            {recentJobs.map((job) => (
+              <JobCard key={job.id} job={job} onDelete={handleDeleteJob} />
+            ))}
+          </div>
         </div>
       )}
     </div>

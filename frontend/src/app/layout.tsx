@@ -38,9 +38,17 @@ export default function RootLayout({
                 </p>
               </div>
             </div>
-            <span className="text-xs text-cc-light/50 font-medium">
-              M&A Deal Tools
-            </span>
+            <div className="flex items-center gap-4">
+              <a
+                href="/jobs"
+                className="text-xs text-cc-light/60 hover:text-white font-medium transition-colors"
+              >
+                Jobs
+              </a>
+              <span className="text-xs text-cc-light/50 font-medium">
+                M&A Deal Tools
+              </span>
+            </div>
           </div>
         </header>
         <main className="max-w-7xl mx-auto px-6 py-8">{children}</main>

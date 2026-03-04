@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from models.one_pager import FieldFlag, OnePagerData, VerificationResult
 
@@ -19,6 +19,8 @@ class StepVerification(BaseModel):
 
 class DeepResearchStep(BaseModel):
     """Result of a single deep research pipeline step."""
+    model_config = ConfigDict(protected_namespaces=())
+
     step_name: str  # e.g. "im_extraction", "web_research"
     label: str  # Human-readable: "IM Extraction"
     model_used: str  # e.g. "anthropic/claude-opus-4"
