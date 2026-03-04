@@ -20,16 +20,17 @@ import anthropic
 from openai import OpenAI
 
 from models.one_pager import OnePagerData
+from services.prompt_manager import get_prompt_template
 
 logger = logging.getLogger(__name__)
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 
-# Default models per provider
+# Default models per provider — Opus for best extraction quality
 DEFAULT_MODELS = {
-    "anthropic": "claude-sonnet-4-20250514",
-    "openrouter": "anthropic/claude-sonnet-4",
+    "anthropic": "claude-opus-4-20250514",
+    "openrouter": "anthropic/claude-opus-4",
 }
 
 # Authoritative financial/business domains for M&A research
@@ -46,58 +47,9 @@ ALLOWED_DOMAINS = [
     "bundesanzeiger.de",
 ]
 
-RESEARCH_SYSTEM_PROMPT = """You are a senior M&A analyst at Constellation Capital AG, a private equity fund focused on acquiring DACH-region SMEs. You have 15 years of experience in due diligence and company evaluation.
 
-Your task is to research a target company and populate a structured One-Pager JSON object. This One-Pager will be reviewed by the investment committee, so accuracy is critical.
-
-## Constellation Capital Investment Criteria
-
-| Criterion | Threshold |
-|-----------|-----------|
-| EBITDA | >= EUR 1.0m |
-| Geography | DACH (Germany, Austria, Switzerland) |
-| EBITDA Margin | >= 10% |
-| Structure | Majority stake preferred |
-| Business Model | Asset-light, digitizable, buy & build potential |
-
-## Research Process
-
-Work through these steps systematically:
-
-1. **Identify the company**: Find the official website, legal entity name, and headquarters.
-2. **Gather financials**: Look for revenue and EBITDA figures for the last 3 years. For DACH SMEs, check Bundesanzeiger, Unternehmensregister, North Data, and Handelsregister.
-3. **Understand the business**: What products/services does the company offer? What is their market position?
-4. **Identify management**: Who are the founders, CEO, and key executives?
-5. **Evaluate investment criteria**: For each criterion, assess based ONLY on the data you actually found.
-
-## Critical Rules to Avoid Errors
-
-1. **NEVER invent financial figures.** Most DACH SMEs do not publish revenue or EBITDA publicly. If you cannot find a figure from a credible source, leave the field as an empty string or null. An empty field is far better than a fabricated number.
-
-2. **Distinguish facts from inferences.** If you infer something (e.g., estimating employee count from LinkedIn), prefix the value with "~" (e.g., "~120"). If a figure comes from the IM document, use it as-is.
-
-3. **When in doubt, use "questions".** For investment_criteria evaluation:
-   - "fulfilled": You have concrete evidence the criterion is met
-   - "questions": You lack sufficient data, or the data is ambiguous
-   - "not_interest": You have concrete evidence the criterion is NOT met
-   Default to "questions" when unsure. Never mark a criterion as "fulfilled" without supporting data in the One-Pager.
-
-4. **Revenue split: only if known.** Do NOT estimate or guess revenue segment percentages. Only fill revenue_split if the IM or a credible source provides this breakdown. Leave segments as an empty array otherwise.
-
-5. **Management: only verified names.** Only include management names you found on the company website, LinkedIn, Handelsregister, or in the IM. Never guess or fabricate names. If unknown, use a role description like "1 managing shareholder (operational MD)".
-
-6. **Cross-check your output.** Before finalizing:
-   - Does EBITDA margin ≈ EBITDA / Revenue? (If both are provided)
-   - Do your investment criteria evaluations match the key facts? (e.g., if EBITDA is stated as EUR 2.0m, ebitda_1m should be "fulfilled")
-   - Are there any contradictions between description, key_facts, and financials?
-
-Return ONLY valid JSON matching the provided schema. No markdown, no explanation, no code fences."""
-
-# Anthropic variant includes web search instruction
-RESEARCH_SYSTEM_PROMPT_ANTHROPIC = RESEARCH_SYSTEM_PROMPT.replace(
-    "Look for revenue and EBITDA figures for the last 3 years. For DACH SMEs, check Bundesanzeiger, Unternehmensregister, North Data, and Handelsregister.",
-    "Use web search to find revenue and EBITDA figures for the last 3 years. Search Bundesanzeiger, Unternehmensregister, North Data, Handelsregister, and the company website.",
-)
+# Prompts are now managed via prompt_manager.py and editable at runtime.
+# Access them via get_prompt_template("research_system"), etc.
 
 
 def _build_json_schema() -> str:
@@ -105,107 +57,39 @@ def _build_json_schema() -> str:
     return json.dumps(OnePagerData.model_json_schema(), indent=2)
 
 
+def _safe_format(template: str, **kwargs) -> str:
+    """Format a prompt template, gracefully handling missing or extra placeholders."""
+    try:
+        return template.format(**kwargs)
+    except KeyError as e:
+        logger.warning("Prompt template has unrecognized placeholder: %s", e)
+        # Fall back to partial formatting using str.format_map with a default dict
+        class SafeDict(dict):
+            def __missing__(self, key: str) -> str:
+                return "{" + key + "}"
+        return template.format_map(SafeDict(**kwargs))
+
+
 def _build_user_prompt(company_name: str, im_text: Optional[str] = None) -> str:
-    """Build the user prompt for research."""
+    """Build the user prompt for research using editable prompt templates."""
+    json_schema = _build_json_schema()
+
     if im_text:
         truncated = im_text[:50000] if len(im_text) > 50000 else im_text
-        source_instructions = f"""## Source Material
-
-An Information Memorandum (IM) has been provided below. This is your PRIMARY source.
-- Extract financials, management names, and business description directly from the IM.
-- Use web search only to supplement or verify IM data (e.g., confirm management names, check for recent news).
-- If the IM contradicts web sources, prefer the IM data (it is more current and deal-specific).
-
-<im_document>
-{truncated}
-</im_document>"""
+        template = get_prompt_template("research_user_with_im")
+        return _safe_format(
+            template,
+            company_name=company_name,
+            im_text=truncated,
+            json_schema=json_schema,
+        )
     else:
-        source_instructions = """## Source Material
-
-No Information Memorandum was provided. Research this company using public sources only.
-- Many DACH SMEs have limited public data. This is normal.
-- Leave financial fields empty rather than guessing. An empty field is expected and acceptable.
-- Focus on what you CAN verify: website, HQ, industry, founding year, products, management (from LinkedIn/Handelsregister)."""
-
-    return f"""Research this company and fill the One-Pager JSON schema.
-
-**Company: {company_name}**
-
-{source_instructions}
-
-## Output Format
-
-JSON Schema to fill:
-{_build_json_schema()}
-
-### Field Format Rules (learn from these real examples):
-
-**header.tagline** — One-line business description, max 80 chars:
-- "Vertically integrated dental practice with strong margin profile"
-- "Provider of premium bedding products & sleep-comfort solutions"
-- "Succession Solution for Indoor E-Karting & Bowling Platform"
-
-**investment_thesis** — Deal-type + target description, one sentence:
-- "100% acquisition of profitable dual-venue leisure platform"
-- "Opportunity to acquire 100% of the shares in a provider of premium bedding products"
-- "100% sale of cash-generative lab component trader & developer"
-
-**key_facts.revenue** / **key_facts.ebitda** — Currency + amount + margin for EBITDA:
-- revenue: "EUR 4.3m", ebitda: "EUR 2.0m (47%)"
-- revenue: "CHF 7.8m", ebitda: "CHF 1.9m (25%)"
-- Use CHF for Swiss companies, EUR otherwise
-
-**key_facts.revenue_year** / **key_facts.ebitda_year** — Year with A/P/E suffix:
-- "FY24A" or "2025A" (A = actual)
-- "25P" (P = projected), "25E" (E = estimated)
-
-**key_facts.management** — Array of strings, one per person with role:
-- ["Andreas Weiland, Founder & Managing Shareholder", "2nd level management for operations"]
-- ["Arndt Hüsges, CEO", "Owners: Arndt Hüsges (70%) & Bernd Hüsges (30%)"]
-- ["1 managing shareholder (operational MD)"] (when names are unknown)
-
-**key_facts.employees** — Number with unit (FTEs or HC):
-- "22.5 FTEs", "150 HC", "~28 FTEs", "10"
-
-**key_facts.founded** — Year only, or "n/a" if truly unknown:
-- "2008", "1957", "n/a"
-
-**description** — 3-5 bullet points describing the business:
-- "Premium 3-level indoor e-karting track (600m, RIMO karts) + 25-lane high-tech bowling center"
-- "Operates own in-house lab enabling high-quality, fast-turnaround prosthetics"
-
-**investment_rationale.pros** — Short, punchy positives (no "+" prefix):
-- "Exceptional profitability"
-- "Asset light business model with strong margins"
-- "Stable, recurring service demand"
-
-**investment_rationale.cons** — Short, punchy negatives (no "–" prefix):
-- "Founder dependency"
-- "High platform dependence on Amazon"
-- "Key-person risk"
-
-**financials** — Multi-year data. Values are in EUR millions as plain numbers:
-- years: ["22A", "23A", "24A", "25P"]
-- revenue: [3.2, 2.9, 3.1, 3.1]  (plain floats, NOT strings)
-- ebitda: [0.9, 0.9, 1.1, 1.2]
-- ebitda_margin: [0.29, 0.317, 0.37, 0.382]  (as decimals, e.g. 0.37 = 37%)
-
-**meta.source** — Where the deal came from:
-- "Alphabet Partners", "Nachfolgekontor", "Ramus & Company AG"
-- "CIM received on 06.11.2025" (if no broker, just IM date)
-
-**meta.status** — Current deal stage:
-- "Internal discussion – 03.03.26"
-- "NBO – 08.12.2025"
-
-### Unknown / unavailable data:
-- Unknown strings: use "" (empty string) or "n/a" for key_facts.founded/website
-- Unknown numeric values: use null (not 0, not a guess)
-- Unknown arrays: use [] (empty array)
-- Revenue split: ONLY fill if you have actual data. Leave segments as [].
-- Investment criteria: Default to "questions" unless you have clear evidence.
-
-Return ONLY the JSON object."""
+        template = get_prompt_template("research_user_no_im")
+        return _safe_format(
+            template,
+            company_name=company_name,
+            json_schema=json_schema,
+        )
 
 
 def _build_web_search_tool() -> dict:
@@ -234,8 +118,8 @@ def get_available_providers() -> list[dict]:
             "has_web_search": True,
             "default_model": DEFAULT_MODELS["anthropic"],
             "models": [
+                {"id": "claude-opus-4-20250514", "name": "Claude Opus 4 (Recommended)"},
                 {"id": "claude-sonnet-4-20250514", "name": "Claude Sonnet 4"},
-                {"id": "claude-opus-4-20250514", "name": "Claude Opus 4"},
                 {"id": "claude-haiku-4-20250514", "name": "Claude Haiku 4"},
             ],
         })
@@ -247,8 +131,8 @@ def get_available_providers() -> list[dict]:
             "has_web_search": False,
             "default_model": DEFAULT_MODELS["openrouter"],
             "models": [
+                {"id": "anthropic/claude-opus-4", "name": "Claude Opus 4 (Recommended)"},
                 {"id": "anthropic/claude-sonnet-4", "name": "Claude Sonnet 4"},
-                {"id": "anthropic/claude-opus-4", "name": "Claude Opus 4"},
                 {"id": "openai/gpt-4o", "name": "GPT-4o"},
                 {"id": "openai/gpt-4.1", "name": "GPT-4.1"},
                 {"id": "google/gemini-2.5-pro-preview", "name": "Gemini 2.5 Pro"},
@@ -331,7 +215,7 @@ def _research_via_anthropic(
         response = client.messages.create(
             model=resolved_model,
             max_tokens=8000,
-            system=RESEARCH_SYSTEM_PROMPT_ANTHROPIC,
+            system=get_prompt_template("research_system"),
             messages=messages,
             tools=[web_search_tool],
         )
@@ -417,7 +301,7 @@ def _research_via_openrouter(
         model=resolved_model,
         max_tokens=8000,
         messages=[
-            {"role": "system", "content": RESEARCH_SYSTEM_PROMPT},
+            {"role": "system", "content": get_prompt_template("research_system_no_search")},
             {"role": "user", "content": user_prompt},
         ],
         extra_headers={

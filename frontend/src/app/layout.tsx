@@ -13,17 +13,34 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className="min-h-screen bg-slate-50">
-        <header className="bg-cc-dark text-white py-4 px-6 shadow-md">
-          <div className="max-w-7xl mx-auto flex items-center justify-between">
-            <div>
-              <h1 className="text-xl font-bold tracking-tight">
-                Constellation Capital AG
-              </h1>
-              <p className="text-sm text-cc-light opacity-80">
-                M&A One-Pager Generator
-              </p>
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+          rel="stylesheet"
+        />
+      </head>
+      <body className="min-h-screen bg-cc-surface font-sans antialiased">
+        <header className="bg-cc-dark border-b border-cc-navy">
+          <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              {/* CC monogram */}
+              <div className="w-9 h-9 rounded bg-white/10 flex items-center justify-center">
+                <span className="text-white font-bold text-sm tracking-tight">CC</span>
+              </div>
+              <div>
+                <h1 className="text-white text-base font-semibold tracking-tight leading-tight">
+                  Constellation Capital AG
+                </h1>
+                <p className="text-cc-light/70 text-xs font-medium">
+                  One-Pager Generator
+                </p>
+              </div>
             </div>
+            <span className="text-xs text-cc-light/50 font-medium">
+              M&A Deal Tools
+            </span>
           </div>
         </header>
         <main className="max-w-7xl mx-auto px-6 py-8">{children}</main>
