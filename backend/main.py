@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from routers.research import router as research_router
 from routers.generate import router as generate_router
+from routers.prompts import router as prompts_router
 from services.ai_research import get_available_providers
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -41,6 +42,7 @@ app.add_middleware(
 # Mount routers
 app.include_router(research_router, prefix="/api", tags=["research"])
 app.include_router(generate_router, prefix="/api", tags=["generate"])
+app.include_router(prompts_router, prefix="/api", tags=["prompts"])
 
 
 @app.get("/api/health")

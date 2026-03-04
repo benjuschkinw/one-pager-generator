@@ -4,6 +4,7 @@ import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { researchCompany } from "@/lib/api";
 import { ResearchResponse } from "@/lib/types";
+import PromptEditor from "./components/PromptEditor";
 
 export default function InputPage() {
   const router = useRouter();
@@ -11,6 +12,7 @@ export default function InputPage() {
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showPrompts, setShowPrompts] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function handleResearch() {
@@ -168,8 +170,33 @@ export default function InputPage() {
         )}
       </div>
 
+      {/* Prompt Editor Toggle */}
+      <div className="mt-6">
+        <button
+          onClick={() => setShowPrompts(!showPrompts)}
+          className="flex items-center gap-2 text-sm text-gray-400 hover:text-cc-mid transition-colors mx-auto"
+        >
+          <svg
+            className={`w-4 h-4 transition-transform ${showPrompts ? "rotate-90" : ""}`}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+          {showPrompts ? "Hide AI Prompts" : "Edit AI Prompts"}
+        </button>
+
+        {showPrompts && (
+          <div className="mt-4 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <PromptEditor />
+          </div>
+        )}
+      </div>
+
       {/* Skip to editor link */}
-      <div className="text-center mt-6">
+      <div className="text-center mt-4">
         <button
           onClick={() => {
             sessionStorage.removeItem("onePagerData");

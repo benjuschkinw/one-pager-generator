@@ -102,6 +102,13 @@ export interface ResearchResponse {
   verification: VerificationResult | null;
 }
 
+export interface PromptDefinition {
+  name: string;
+  description: string;
+  template: string;
+  is_default: boolean;
+}
+
 export const EMPTY_ONE_PAGER: OnePagerData = {
   meta: { source: "", im_received: "", loi_deadline: "", status: "" },
   header: { label: "One Pager", company_name: "", tagline: "" },
