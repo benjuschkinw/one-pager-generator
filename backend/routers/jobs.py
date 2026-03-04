@@ -1,11 +1,9 @@
 """Jobs REST API: CRUD for persistent job storage, file downloads, PPTX generation, deep research SSE."""
 
-import asyncio
 import json
 import logging
 import os
 import re
-from datetime import datetime
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
@@ -21,7 +19,6 @@ from services.job_store import (
     list_jobs,
     save_edited_data,
     save_pptx_path,
-    save_research_data,
     update_job,
 )
 from services.pptx_generator import generate_one_pager
@@ -155,109 +152,35 @@ async def api_generate_pptx(job_id: str):
 
 
 @router.post("/jobs/{job_id}/research/deep")
-async def deep_research(job_id: str):
+async def api_deep_research(job_id: str):
     """
     Run the deep research pipeline for a job, streaming progress as SSE events.
 
-    SSE event types:
-      - progress: step status update (running, rechecking, etc.)
-      - step_complete: a step finished with confidence score
-      - complete: entire pipeline finished
-      - error: a step or the pipeline encountered an error
+    The pipeline is an async generator that yields event dicts.  Each dict
+    contains an ``_event_type`` key (progress | complete) plus fields the
+    frontend DeepResearchProgress component expects:
+      step, status, message, model?, duration?, confidence?
     """
     job = await get_job(job_id)
     if job is None:
         raise HTTPException(404, "Job not found")
 
-    if job.status not in ("pending", "completed", "failed"):
+    if job.status == "researching":
         raise HTTPException(
             409,
-            f"Job is currently '{job.status}'. Cannot start deep research.",
+            "Deep research is already running for this job.",
         )
 
     # Mark job as researching
     await update_job(job_id, status="researching", research_mode="deep")
 
-    # SSE event queue for progress streaming
-    event_queue: asyncio.Queue = asyncio.Queue()
-
-    def progress_callback(step_name: str, status: str, label: str, detail: str | None):
-        """Push progress events to the SSE queue."""
-        if status in ("done", "verified"):
-            event_type = "step_complete"
-        elif status == "error":
-            event_type = "error"
-        else:
-            event_type = "progress"
-
-        data: dict = {"step": step_name, "label": label, "status": status}
-        if detail:
-            data["detail"] = detail
-
-        # For step_complete events, try to include confidence from detail
-        if status == "verified" and detail and "Confidence:" in detail:
-            try:
-                pct_str = detail.split("Confidence:")[1].strip().rstrip("%")
-                data["confidence"] = float(pct_str) / 100.0
-            except (ValueError, IndexError):
-                pass
-
-        event_queue.put_nowait({"event": event_type, "data": data})
-
-    async def run_pipeline():
-        """Run the deep research pipeline and push final events."""
-        try:
-            final_data, verification, step_records = await run_deep_research(
-                company_name=job.company_name,
-                im_text=job.im_text,
-                progress_callback=progress_callback,
-            )
-
-            # Save results to job
-            await save_research_data(job_id, final_data, verification)
-            await update_job(
-                job_id,
-                status="completed",
-                deep_research_steps=step_records,
-            )
-
-            event_queue.put_nowait({
-                "event": "complete",
-                "data": {"job_id": job_id},
-            })
-
-        except Exception as e:
-            logger.error("Deep research pipeline failed for job %s: %s", job_id, e)
-            await update_job(job_id, status="failed")
-            event_queue.put_nowait({
-                "event": "error",
-                "data": {"step": "pipeline", "message": str(e)},
-            })
-
-        # Sentinel to signal stream end
-        event_queue.put_nowait(None)
-
-    async def event_generator():
-        """Generate SSE events from the queue."""
-        # Start pipeline as a background task
-        task = asyncio.create_task(run_pipeline())
-
-        try:
-            while True:
-                event = await event_queue.get()
-                if event is None:
-                    # Pipeline finished
-                    break
-
-                event_type = event.get("event", "progress")
-                data_json = json.dumps(event.get("data", {}))
-                yield f"event: {event_type}\ndata: {data_json}\n\n"
-        except asyncio.CancelledError:
-            task.cancel()
-            raise
+    async def event_stream():
+        async for event in run_deep_research(job_id, job.company_name, job.im_text):
+            event_type = event.pop("_event_type", "progress")
+            yield f"event: {event_type}\ndata: {json.dumps(event)}\n\n"
 
     return StreamingResponse(
-        event_generator(),
+        event_stream(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
