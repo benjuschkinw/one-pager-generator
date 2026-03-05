@@ -187,7 +187,7 @@ export default function MarketEditorPage() {
               const url = URL.createObjectURL(blob);
               const a = document.createElement("a");
               a.href = url;
-              a.download = `Market_Study_${data.meta.market_name || "export"}.json`;
+              a.download = `Market_Study_${(data.meta.market_name || "export").replace(/[^a-zA-Z0-9_\- ]/g, "_").substring(0, 100)}.json`;
               a.click();
               URL.revokeObjectURL(url);
             }}

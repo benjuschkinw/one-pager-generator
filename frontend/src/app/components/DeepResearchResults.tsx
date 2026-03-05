@@ -185,23 +185,27 @@ function StepCard({ step }: { step: DeepResearchStep }) {
               Sources
             </h4>
             <div className="flex flex-wrap gap-1">
-              {step.sources.map((src, i) => (
-                <a
-                  key={i}
-                  href={src.startsWith("http") ? src : undefined}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={`text-[10px] px-1.5 py-0.5 rounded bg-gray-100 ${
-                    src.startsWith("http")
-                      ? "text-cc-mid hover:bg-cc-surface cursor-pointer"
-                      : "text-gray-500"
-                  } truncate max-w-[200px]`}
-                >
-                  {src.startsWith("http")
-                    ? new URL(src).hostname.replace("www.", "")
-                    : src}
-                </a>
-              ))}
+              {step.sources.map((src, i) => {
+                let validUrl: URL | null = null;
+                try { if (src.startsWith("http")) validUrl = new URL(src); } catch { /* invalid */ }
+                return (
+                  <a
+                    key={i}
+                    href={validUrl ? src : undefined}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`text-[10px] px-1.5 py-0.5 rounded bg-gray-100 ${
+                      validUrl
+                        ? "text-cc-mid hover:bg-cc-surface cursor-pointer"
+                        : "text-gray-500"
+                    } truncate max-w-[200px]`}
+                  >
+                    {validUrl
+                      ? validUrl.hostname.replace("www.", "")
+                      : src}
+                  </a>
+                );
+              })}
             </div>
           </div>
         )}

@@ -292,23 +292,34 @@ def _run_market_step_recheck_sync(step_name: str, step_output: dict) -> dict:
 
 # ─── Step persistence ───────────────────────────────────────────────────────
 
+_job_locks: dict[str, asyncio.Lock] = {}
+
+
+def _get_job_lock(job_id: str) -> asyncio.Lock:
+    """Return a per-job lock to serialize _save_step calls."""
+    if job_id not in _job_locks:
+        _job_locks[job_id] = asyncio.Lock()
+    return _job_locks[job_id]
+
+
 async def _save_step(job_id: str, step: DeepResearchStep) -> None:
     """Update a single step inside the job's deep_research_steps list."""
-    job = await get_job(job_id)
-    if job is None:
-        return
-    steps = list(job.deep_research_steps or [])
+    async with _get_job_lock(job_id):
+        job = await get_job(job_id)
+        if job is None:
+            return
+        steps = list(job.deep_research_steps or [])
 
-    replaced = False
-    for i, s in enumerate(steps):
-        if s.step_name == step.step_name:
-            steps[i] = step
-            replaced = True
-            break
-    if not replaced:
-        steps.append(step)
+        replaced = False
+        for i, s in enumerate(steps):
+            if s.step_name == step.step_name:
+                steps[i] = step
+                replaced = True
+                break
+        if not replaced:
+            steps.append(step)
 
-    await update_job(job_id, deep_research_steps=steps)
+        await update_job(job_id, deep_research_steps=steps)
 
 
 # ─── Main pipeline (async generator) ───────────────────────────────────────

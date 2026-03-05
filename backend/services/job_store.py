@@ -170,10 +170,23 @@ async def list_jobs() -> list[JobSummary]:
         return [_row_to_summary(row) for row in rows]
 
 
+_ALLOWED_COLUMNS = {
+    "company_name", "status", "im_filename", "im_file_path", "im_text",
+    "provider", "model", "research_mode", "research_data", "verification",
+    "deep_research_steps", "edited_data", "pptx_file_path",
+    "market_study_data", "edited_market_data", "updated_at",
+}
+
+
 async def update_job(job_id: str, **fields: Any) -> Optional[Job]:
     """Update specific fields on a job. Returns the updated job or None."""
     if not fields:
         return await get_job(job_id)
+
+    # Validate column names against allowlist to prevent SQL injection
+    invalid = set(fields.keys()) - _ALLOWED_COLUMNS
+    if invalid:
+        raise ValueError(f"Invalid field names: {invalid}")
 
     # Serialize JSON fields
     for key in _JSON_FIELDS:
