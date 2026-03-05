@@ -38,7 +38,7 @@ export default function StrategicImplicationsSection({ data, onChange }: Props) 
               <div className="flex items-center gap-2">
                 <input type="text" value={rec.title} onChange={(e) => updateRec(idx, { title: e.target.value })}
                   placeholder="Recommendation title" className="flex-1 px-2 py-1 border border-gray-200 rounded text-sm focus:ring-1 focus:ring-cc-mid/30" />
-                <button onClick={() => removeRec(idx)} className="text-red-400 hover:text-red-600 text-xs">✕</button>
+                <button onClick={() => removeRec(idx)} aria-label="Remove recommendation" className="text-red-400 hover:text-red-600 text-xs">✕</button>
               </div>
               <textarea value={rec.description} onChange={(e) => updateRec(idx, { description: e.target.value })}
                 placeholder="Description..." rows={2}

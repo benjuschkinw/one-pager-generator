@@ -45,7 +45,20 @@ export default function MarketEditorPage() {
 
       const marketData = jobData.edited_market_data || jobData.market_study_data;
       if (marketData) {
-        setData({ ...EMPTY_MARKET_STUDY, ...marketData });
+        // Deep merge: preserve nested defaults for any missing sub-objects
+        const merged = { ...EMPTY_MARKET_STUDY };
+        for (const key of Object.keys(merged) as (keyof typeof merged)[]) {
+          if (marketData[key] !== undefined && marketData[key] !== null) {
+            const empty = merged[key];
+            const incoming = marketData[key];
+            if (typeof empty === "object" && !Array.isArray(empty) && typeof incoming === "object" && !Array.isArray(incoming)) {
+              (merged as Record<string, unknown>)[key] = { ...empty, ...incoming };
+            } else {
+              (merged as Record<string, unknown>)[key] = incoming;
+            }
+          }
+        }
+        setData(merged);
       }
 
       // If job is still researching, show progress
@@ -140,6 +153,7 @@ export default function MarketEditorPage() {
         <div className="flex items-center gap-4">
           <button
             onClick={() => router.push("/")}
+            aria-label="Go back to home"
             className="text-xs text-gray-400 hover:text-cc-mid transition-colors flex items-center gap-1"
           >
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -198,7 +212,21 @@ export default function MarketEditorPage() {
               const updatedJob = await getJob(jobId);
               setJob(updatedJob);
               const md = updatedJob.edited_market_data || updatedJob.market_study_data;
-              if (md) setData({ ...EMPTY_MARKET_STUDY, ...md });
+              if (md) {
+                const m = { ...EMPTY_MARKET_STUDY };
+                for (const key of Object.keys(m) as (keyof typeof m)[]) {
+                  if (md[key] !== undefined && md[key] !== null) {
+                    const empty = m[key];
+                    const incoming = md[key];
+                    if (typeof empty === "object" && !Array.isArray(empty) && typeof incoming === "object" && !Array.isArray(incoming)) {
+                      (m as Record<string, unknown>)[key] = { ...empty, ...incoming };
+                    } else {
+                      (m as Record<string, unknown>)[key] = incoming;
+                    }
+                  }
+                }
+                setData(m);
+              }
             }}
             onError={(msg) => {
               setResearchActive(false);

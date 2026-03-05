@@ -26,7 +26,7 @@ export default function SegmentationSection({ segments: data, onChange }: Props)
             <div className="flex items-center gap-2">
               <input type="text" value={seg.name} onChange={(e) => update(idx, { name: e.target.value })}
                 placeholder="Segment name" className="flex-1 px-2 py-1 border border-gray-200 rounded text-sm focus:ring-1 focus:ring-cc-mid/30" />
-              <button onClick={() => remove(idx)} className="text-red-400 hover:text-red-600 text-xs">✕</button>
+              <button onClick={() => remove(idx)} aria-label="Remove segment" className="text-red-400 hover:text-red-600 text-xs">✕</button>
             </div>
             <div className="grid grid-cols-3 gap-2">
               <input type="text" value={seg.size} onChange={(e) => update(idx, { size: e.target.value })}

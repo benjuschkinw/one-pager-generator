@@ -49,6 +49,7 @@ export default function MarketBulletEditor({ label, items, onChange, placeholder
             />
             <button
               onClick={() => handleRemove(i)}
+              aria-label="Remove item"
               className="text-gray-300 hover:text-red-400 mt-1 p-0.5 transition-colors"
             >
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">

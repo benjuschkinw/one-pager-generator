@@ -490,7 +490,7 @@ def _slide_9_buy_and_build(prs: Presentation, data: MarketStudyData) -> None:
 
     # Fragmentation score gauge
     if bb.fragmentation_score is not None:
-        score_pct = f"{bb.fragmentation_score * 100:.0f}%"
+        score_pct = f"{bb.fragmentation_score:.0f}/10"
         box = slide.shapes.add_shape(
             1, Inches(0.5), Inches(0.9), Inches(2.5), Inches(0.8),
         )

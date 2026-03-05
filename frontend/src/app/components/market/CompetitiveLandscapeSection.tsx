@@ -58,7 +58,7 @@ export default function CompetitiveLandscapeSection({ data, onChange }: Props) {
               <div className="flex items-center gap-2">
                 <input type="text" value={p.name} onChange={(e) => updatePlayer(idx, { name: e.target.value })}
                   placeholder="Company name" className="flex-1 px-2 py-1 border border-gray-200 rounded text-sm focus:ring-1 focus:ring-cc-mid/30" />
-                <button onClick={() => removePlayer(idx)} className="text-red-400 hover:text-red-600 text-xs">✕</button>
+                <button onClick={() => removePlayer(idx)} aria-label="Remove competitor" className="text-red-400 hover:text-red-600 text-xs">✕</button>
               </div>
               <div className="grid grid-cols-3 gap-2">
                 <input type="text" value={p.market_share} onChange={(e) => updatePlayer(idx, { market_share: e.target.value })}

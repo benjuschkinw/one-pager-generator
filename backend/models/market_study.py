@@ -125,7 +125,7 @@ class ValueChain(BaseModel):
 
 class BuyAndBuild(BaseModel):
     """Slide 9: Buy & Build potential assessment."""
-    fragmentation_score: Optional[float] = None  # 0.0-1.0
+    fragmentation_score: Optional[float] = None  # 1-10 scale
     platform_candidates: list[str] = Field(default_factory=list)
     add_on_profile: str = ""
     consolidation_rationale: str = ""

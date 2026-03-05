@@ -31,7 +31,7 @@ export default function ValueChainSection({ data, onChange }: Props) {
                   placeholder="Stage name" className="flex-1 px-2 py-1 border border-gray-200 rounded text-sm focus:ring-1 focus:ring-cc-mid/30" />
                 <input type="text" value={stage.typical_margin} onChange={(e) => updateStage(idx, { typical_margin: e.target.value })}
                   placeholder="Margin" className="w-24 px-2 py-1 border border-gray-200 rounded text-sm focus:ring-1 focus:ring-cc-mid/30" />
-                <button onClick={() => removeStage(idx)} className="text-red-400 hover:text-red-600 text-xs">✕</button>
+                <button onClick={() => removeStage(idx)} aria-label="Remove stage" className="text-red-400 hover:text-red-600 text-xs">✕</button>
               </div>
               <textarea value={stage.description} onChange={(e) => updateStage(idx, { description: e.target.value })}
                 placeholder="Description..." rows={2}

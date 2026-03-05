@@ -31,14 +31,14 @@ export default function MarketSizingSection({ data, onChange }: Props) {
       </div>
       <div className="grid grid-cols-3 gap-3">
         <div>
-          <label className="block text-xs font-medium text-gray-500 mb-1">CAGR</label>
-          <input type="text" value={data.cagr !== null ? `${(data.cagr * 100).toFixed(1)}%` : ""}
+          <label className="block text-xs font-medium text-gray-500 mb-1">CAGR (%)</label>
+          <input type="number" step="0.1"
+            value={data.cagr !== null ? (data.cagr * 100).toFixed(1) : ""}
             onChange={(e) => {
-              const val = e.target.value.replace("%", "");
-              const num = parseFloat(val);
+              const num = parseFloat(e.target.value);
               onChange({ ...data, cagr: isNaN(num) ? null : num / 100 });
             }}
-            placeholder="6.8%" className="w-full px-2 py-1 border border-gray-200 rounded text-sm focus:ring-1 focus:ring-cc-mid/30" />
+            placeholder="6.8" className="w-full px-2 py-1 border border-gray-200 rounded text-sm focus:ring-1 focus:ring-cc-mid/30" />
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-500 mb-1">CAGR Period</label>

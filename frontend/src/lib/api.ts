@@ -293,6 +293,7 @@ export function startMarketResearch(
 
       const decoder = new TextDecoder();
       let buffer = "";
+      let completed = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -317,8 +318,9 @@ export function startMarketResearch(
                 onJobCreated(data.job_id);
               } else if (currentEvent === "complete") {
                 onEvent(currentEvent, data);
-                onComplete();
+                if (!completed) { completed = true; onComplete(); }
               } else if (currentEvent === "error") {
+                completed = true;
                 onError(data.message || "Market research failed");
               } else {
                 onEvent(currentEvent, data);
@@ -331,7 +333,8 @@ export function startMarketResearch(
         }
       }
 
-      onComplete();
+      // Stream ended — only fire onComplete if not already done
+      if (!completed) onComplete();
     } catch (err) {
       if ((err as Error).name === "AbortError") return;
       onError(err instanceof Error ? err.message : "Market research connection failed");

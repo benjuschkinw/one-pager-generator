@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 
 from fastapi import APIRouter, Form, HTTPException
 from fastapi.responses import StreamingResponse
@@ -11,6 +12,33 @@ from services.market_research import run_market_research
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+# Validation constants
+_MAX_MARKET_NAME_LEN = 200
+_MAX_SCOPING_JSON_LEN = 10_000
+_MAX_SCOPING_FIELD_LEN = 500
+_ALLOWED_REGIONS = {"DACH", "Germany", "Europe", "Global"}
+_ALLOWED_SCOPING_KEYS = {
+    "product_scope", "value_chain_focus", "geographic_detail",
+    "time_horizon", "customer_type", "customer_detail",
+    "market_metric", "study_purpose",
+}
+
+
+def _sanitize_scoping(raw: dict) -> dict:
+    """Validate and sanitize scoping context: whitelist keys, limit lengths."""
+    clean: dict[str, str] = {}
+    for key, val in raw.items():
+        if key not in _ALLOWED_SCOPING_KEYS:
+            continue
+        if not isinstance(val, str):
+            val = str(val)
+        # Truncate overly long values
+        val = val[:_MAX_SCOPING_FIELD_LEN]
+        # Strip characters that could be used for prompt structure injection
+        val = re.sub(r"[`#]{3,}", "", val)
+        clean[key] = val
+    return clean
 
 
 @router.post("/market-research")
@@ -27,18 +55,33 @@ async def api_start_market_research(
     - **region**: Geographic focus (default: "DACH")
     - **scoping_context**: JSON string with scoping answers (product scope, customer, etc.)
     """
-    if not market_name.strip():
+    # --- Input validation ---
+    market_name = market_name.strip()
+    if not market_name:
         raise HTTPException(400, "Market name is required")
+    if len(market_name) > _MAX_MARKET_NAME_LEN:
+        raise HTTPException(400, f"Market name too long (max {_MAX_MARKET_NAME_LEN} characters)")
 
-    # Parse scoping context
+    if region not in _ALLOWED_REGIONS:
+        region = "DACH"
+
+    if len(scoping_context) > _MAX_SCOPING_JSON_LEN:
+        raise HTTPException(400, "Scoping context too large")
+
+    # Parse and sanitize scoping context
     try:
-        scoping = json.loads(scoping_context) if scoping_context else {}
+        scoping_raw = json.loads(scoping_context) if scoping_context else {}
     except json.JSONDecodeError:
-        scoping = {}
+        scoping_raw = {}
+
+    if not isinstance(scoping_raw, dict):
+        scoping_raw = {}
+
+    scoping = _sanitize_scoping(scoping_raw)
 
     # Create a job record
     job = await create_job(
-        company_name=market_name.strip(),  # reuse company_name field for market_name
+        company_name=market_name,
         research_mode="market",
     )
     job_id = job.id
@@ -51,7 +94,7 @@ async def api_start_market_research(
         yield f"event: job_created\ndata: {json.dumps({'job_id': job_id})}\n\n"
 
         async for event in run_market_research(
-            job_id, market_name.strip(), region.strip(), scoping_context=scoping,
+            job_id, market_name, region, scoping_context=scoping,
         ):
             event_type = event.pop("_event_type", "progress")
             yield f"event: {event_type}\ndata: {json.dumps(event)}\n\n"
