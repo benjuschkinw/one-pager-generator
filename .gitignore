@@ -11,6 +11,7 @@ backend/outputs/
 
 # Job data (SQLite DB, uploads, generated files)
 data/
+backend/data/
 
 # Node
 frontend/node_modules/
