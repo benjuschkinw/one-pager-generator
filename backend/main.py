@@ -17,6 +17,7 @@ from routers.generate import router as generate_router
 from routers.prompts import router as prompts_router
 from routers.jobs import router as jobs_router
 from routers.market_research import router as market_research_router
+from routers.models import router as models_router
 from services.ai_research import get_available_providers
 from services.job_store import init_db
 
@@ -48,6 +49,7 @@ app.include_router(generate_router, prefix="/api", tags=["generate"])
 app.include_router(prompts_router, prefix="/api", tags=["prompts"])
 app.include_router(jobs_router, prefix="/api", tags=["jobs"])
 app.include_router(market_research_router, prefix="/api", tags=["market-research"])
+app.include_router(models_router, prefix="/api", tags=["models"])
 
 
 @app.on_event("startup")

@@ -6,6 +6,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from models.company_sourcing import CompanySourcingResult
 from models.market_study import MarketStudyData
 from models.one_pager import FieldFlag, OnePagerData, VerificationResult
 
@@ -62,6 +63,10 @@ class Job(BaseModel):
     # Market study outputs
     market_study_data: Optional[MarketStudyData] = None
     edited_market_data: Optional[MarketStudyData] = None
+
+    # Company sourcing outputs
+    sourcing_data: Optional[CompanySourcingResult] = None
+    edited_sourcing_data: Optional[CompanySourcingResult] = None
 
 
 class JobSummary(BaseModel):

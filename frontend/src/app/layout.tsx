@@ -45,6 +45,12 @@ export default function RootLayout({
               >
                 Jobs
               </a>
+              <a
+                href="/settings"
+                className="text-xs text-cc-light/60 hover:text-white font-medium transition-colors"
+              >
+                Settings
+              </a>
               <span className="text-xs text-cc-light/50 font-medium">
                 M&A Deal Tools
               </span>

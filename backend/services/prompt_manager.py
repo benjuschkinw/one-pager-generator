@@ -608,12 +608,29 @@ Return a COMPLETE OnePagerData JSON matching this schema:
 - **revenue_split.segments**: Only if data exists, pct must sum to ~100
 - **investment_criteria**: ALL fields must be set (fulfilled/questions/not_interest)
 
+## Source Tier Classification
+
+When merging data, classify each source by tier and prefer higher-tier sources:
+
+| Tier | Source Type | Weight | Examples |
+|------|-----------|--------|----------|
+| 1 (Primary) | Government/company filings | Highest | Bundesanzeiger, SEC filings, Handelsregister, company annual reports |
+| 2 (Secondary) | Industry reports | High | Statista, IBISWorld, analyst reports |
+| 3 (Tertiary) | News and press | Medium | News articles, press releases, blog posts |
+| 4 (Derived) | AI estimates | Lowest | Inferred values (prefix with ~) |
+
+## Triangulation Rules
+
+- Key figures (revenue, EBITDA, employees) must be supported by 2+ independent sources where possible.
+- If only 1 source is available, prefix the value with `~` and add a note "single-source estimate".
+- If sources conflict, note the range in `_merge_notes` (e.g., "Revenue: EUR 25M (IM) vs EUR 28M (Bundesanzeiger)").
+
 ## CRITICAL Rules
 
 1. **NEVER invent data** that wasn't in any sub-task result.
 2. If a field has no data from any source, use "" (strings), null (numbers), or [] (arrays).
 3. Ensure financial consistency: EBITDA margin should approximately equal EBITDA / Revenue.
-4. Include a `_merge_notes` field documenting any conflicts resolved.
+4. Include a `_merge_notes` field documenting any conflicts resolved and source tiers used.
 
 Return ONLY valid JSON matching the complete OnePagerData schema."""
 
@@ -1046,6 +1063,23 @@ You will receive partial JSON results from these research steps:
 
 {{json_schema}}
 
+## Source Tier Classification
+
+When merging data, classify and prefer higher-tier sources:
+
+| Tier | Source Type | Weight | Examples |
+|------|-----------|--------|----------|
+| 1 (Primary) | Government statistics, official filings | Highest | Destatis, Eurostat, government reports |
+| 2 (Secondary) | Industry reports and analyst research | High | Statista, IBISWorld, Mordor Intelligence |
+| 3 (Tertiary) | News articles and press releases | Medium | Trade publications, news articles |
+| 4 (Derived) | AI estimates and inferences | Lowest | Prefix with ~ |
+
+## Triangulation Rules
+
+- Key market figures (TAM, CAGR, market shares) must be backed by 2+ independent sources where possible.
+- If only 1 source is available, prefix with `~` and note "single-source estimate".
+- Conflicting sources: note the range (e.g., "TAM: EUR 2.1bn (Statista) vs EUR 2.5bn (IBISWorld)").
+
 ## CRITICAL Rules
 
 1. The executive_summary.title must be an Action Title (conveys insight, e.g., "DACH Dental Lab Market: Consolidation Wave Creates PE Opportunity").
@@ -1144,6 +1178,183 @@ Return ONLY valid JSON:
 - "high": Multiple indicators of fabricated data
 
 Return ONLY valid JSON."""
+
+
+# ---------------------------------------------------------------------------
+# Company Sourcing prompts
+# ---------------------------------------------------------------------------
+
+_SOURCING_EXTRACT_DNA_PROMPT = """You are a senior M&A analyst. Given a completed one-pager for a company, extract the "Company DNA" — the key characteristics that define this company for the purpose of finding similar acquisition targets in the DACH region.
+
+## Your Task
+
+Analyze the provided OnePagerData and extract structured search criteria:
+
+1. **Industry classification**: Primary industry, sub-sector, NACE codes if identifiable
+2. **Size parameters**: Revenue range (±50% of seed), employee range, EBITDA range
+3. **Business model**: Type (B2B Services, SaaS, Manufacturing, etc.), asset-light vs. capital-intensive
+4. **Product/service categories**: Key offerings that define the company
+5. **Geographic focus**: Where within DACH the company operates
+6. **Customer segments**: Who they sell to (SME, enterprise, public sector, etc.)
+7. **Ownership characteristics**: Family-owned, founder-led, PE-backed, etc.
+
+## Anti-Hallucination Rules
+- Only extract what is explicitly stated in the data
+- If a field is unknown, set it to null
+- Do not infer or estimate values not present in the input
+
+## Output Format
+Return ONLY valid JSON:
+{
+  "industry": "...",
+  "sub_sector": "...",
+  "nace_codes": ["..."],
+  "revenue_range_eur_m": {"min": 10, "max": 50},
+  "employee_range": {"min": 50, "max": 500},
+  "business_model": "...",
+  "key_products_services": ["..."],
+  "geographic_focus": "...",
+  "customer_segments": ["..."],
+  "ownership_preference": "...",
+  "search_keywords": ["...", "..."]
+}"""
+
+_SOURCING_SEARCH_COMPANIES_PROMPT = """You are a senior M&A deal sourcing analyst at a DACH-focused private equity fund. Your task is to find REAL, VERIFIABLE companies that match the given search criteria.
+
+## CRITICAL RULES
+1. **NEVER invent company names.** Only return companies that verifiably exist.
+2. **Every company must have at least one verifiable data point**: a website URL, a Handelsregister entry, a news mention, or a government filing.
+3. If you cannot find enough real companies, return FEWER rather than fabricating entries.
+4. **Mark all estimated figures with the prefix ~** (e.g., "~25" for estimated revenue of EUR 25M).
+5. Focus on companies in the specified country/region.
+
+## Search Strategy
+- Look for companies in the same industry and sub-sector
+- Consider companies of similar size (revenue ±50% of the seed company)
+- Include both direct competitors and adjacent players
+- Consider companies across different ownership types (family-owned, founder-led, PE-backed)
+
+## Output Format
+Return ONLY valid JSON:
+{
+  "companies": [
+    {
+      "name": "Company GmbH",
+      "hq_city": "Munich",
+      "hq_country": "DE",
+      "website": "https://company.de",
+      "founded_year": 2005,
+      "description": "Leading provider of...",
+      "industry": "...",
+      "sub_sector": "...",
+      "revenue_eur_m": 35,
+      "revenue_estimate": true,
+      "ebitda_margin_pct": null,
+      "employee_count": 250,
+      "employee_estimate": true,
+      "business_model": "B2B Services",
+      "ownership_type": "Family-owned",
+      "customer_segments": ["SME"],
+      "key_products_services": ["..."],
+      "data_sources": ["handelsregister.de", "company website"],
+      "data_freshness": "2024"
+    }
+  ],
+  "_sources": ["url1", "url2"]
+}"""
+
+_SOURCING_VERIFY_ENRICH_PROMPT = """You are a due diligence analyst. Your task is to verify that each company in the list actually exists, enrich the data where possible, and calculate a similarity score vs. the seed company.
+
+## Verification Checklist
+For each company:
+1. Does the company name correspond to a real, operating entity?
+2. Is the stated HQ location plausible?
+3. Are the revenue/employee estimates in a reasonable range for the industry?
+4. Is the ownership type correctly identified?
+
+## Similarity Scoring (0-100)
+Calculate similarity across these dimensions:
+- **Industry match** (0-30): Same industry/sub-sector = 30, adjacent = 15, different = 0
+- **Size match** (0-25): Within ±25% revenue = 25, within ±50% = 15, outside = 5
+- **Business model** (0-20): Same business model = 20, similar = 10, different = 0
+- **Geography** (0-15): Same country = 15, same region = 10, different DACH = 5
+- **Ownership** (0-10): Compatible ownership type = 10, neutral = 5, incompatible = 0
+
+## Anti-Hallucination Rules
+- If you cannot verify a company exists, REMOVE it from the list entirely
+- Do not add companies that weren't in the original list
+- Mark all uncertain data clearly
+
+## Output Format
+Return ONLY valid JSON:
+{
+  "verified_companies": [
+    {
+      "name": "...",
+      "verified": true,
+      "similarity_score": 82,
+      "similarity_rationale": "Strong industry and size match...",
+      "similarity_dimensions": {"industry": 30, "size": 20, "business_model": 15, "geography": 10, "ownership": 7},
+      "confidence": 0.85,
+      "enriched_data": {},
+      "verification_notes": "..."
+    }
+  ],
+  "removed_companies": [
+    {"name": "...", "reason": "Could not verify existence"}
+  ]
+}"""
+
+_SOURCING_RANK_SYNTHESIZE_PROMPT = """You are a senior M&A analyst. Given a list of verified comparable companies and their similarity scores, produce a final ranked output with summary statistics and an executive summary.
+
+## Your Task
+1. Sort companies by similarity score (highest first)
+2. Calculate summary statistics: avg/median revenue, avg EBITDA margin, avg employees, country distribution, ownership distribution
+3. Write a brief executive summary (2-3 sentences) of the comparable company landscape
+
+## Output Format
+Return ONLY valid JSON:
+{
+  "ranked_companies": [
+    {
+      "name": "...",
+      "hq_city": "...",
+      "hq_country": "...",
+      "website": "...",
+      "founded_year": 2005,
+      "description": "...",
+      "industry": "...",
+      "sub_sector": "...",
+      "revenue_eur_m": 35,
+      "revenue_estimate": true,
+      "ebitda_eur_m": null,
+      "ebitda_margin_pct": null,
+      "employee_count": 250,
+      "employee_estimate": true,
+      "business_model": "...",
+      "ownership_type": "...",
+      "customer_segments": [],
+      "key_products_services": [],
+      "similarity_score": 85,
+      "similarity_rationale": "...",
+      "similarity_dimensions": {},
+      "data_sources": [],
+      "data_freshness": "2024",
+      "confidence": 0.8
+    }
+  ],
+  "summary": {
+    "count": 15,
+    "avg_revenue_eur_m": 32.5,
+    "median_revenue_eur_m": 28.0,
+    "avg_ebitda_margin": 15.2,
+    "avg_employees": 180,
+    "country_distribution": {"DE": 8, "AT": 4, "CH": 3},
+    "ownership_distribution": {"Family-owned": 7, "PE-backed": 3, "Founder-led": 5}
+  },
+  "executive_summary": "The DACH market for [industry] features approximately 15 comparable companies..."
+}"""
+
 
 # ---------------------------------------------------------------------------
 # Prompt registry (singleton)
@@ -1268,6 +1479,27 @@ def _init_defaults():
             name="market_step_recheck",
             description="Per-step 2nd AI verification for market research: checks data accuracy, source quality, DACH specificity.",
             template=_MARKET_STEP_RECHECK_PROMPT,
+        ),
+        # ── Company Sourcing prompts ───────────────────────────────────
+        "sourcing_extract_dna": PromptDefinition(
+            name="sourcing_extract_dna",
+            description="Extract Company DNA: builds searchable criteria from a completed one-pager for finding similar companies.",
+            template=_SOURCING_EXTRACT_DNA_PROMPT,
+        ),
+        "sourcing_search_companies": PromptDefinition(
+            name="sourcing_search_companies",
+            description="Search for comparable companies in a specific country/region matching the Company DNA criteria.",
+            template=_SOURCING_SEARCH_COMPANIES_PROMPT,
+        ),
+        "sourcing_verify_enrich": PromptDefinition(
+            name="sourcing_verify_enrich",
+            description="Verify found companies exist and enrich with additional data. Calculate similarity scores.",
+            template=_SOURCING_VERIFY_ENRICH_PROMPT,
+        ),
+        "sourcing_rank_synthesize": PromptDefinition(
+            name="sourcing_rank_synthesize",
+            description="Rank companies by similarity and generate summary statistics and executive summary.",
+            template=_SOURCING_RANK_SYNTHESIZE_PROMPT,
         ),
     }
 

@@ -226,6 +226,20 @@ export default function JobEditorPage() {
             Run Deep Research
           </button>
 
+          {/* Find Similar Companies button */}
+          {job?.status === "completed" && job.research_data && (
+            <button
+              onClick={() => router.push(`/editor/${jobId}/sourcing`)}
+              className="text-xs text-emerald-600 hover:text-emerald-800 border border-emerald-300 px-3 py-1.5 rounded-lg
+                         hover:border-emerald-500 transition-all flex items-center gap-1.5"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              Find Similar Companies
+            </button>
+          )}
+
           {/* Export JSON button */}
           <button
             onClick={() => {
@@ -233,7 +247,7 @@ export default function JobEditorPage() {
               const url = URL.createObjectURL(blob);
               const a = document.createElement("a");
               a.href = url;
-              a.download = `${data.header.company_name || "one_pager"}_data.json`;
+              a.download = `${(data.header.company_name || "one_pager").replace(/[^a-zA-Z0-9_\- ]/g, "_").substring(0, 100)}_data.json`;
               a.click();
               URL.revokeObjectURL(url);
             }}

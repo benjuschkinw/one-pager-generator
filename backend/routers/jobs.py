@@ -9,9 +9,11 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
+from models.company_sourcing import CompanySourcingResult
 from models.job import Job, JobSummary
 from models.market_study import MarketStudyData
 from models.one_pager import OnePagerData
+from services.company_sourcing import run_company_sourcing
 from services.deep_research import run_deep_research
 from services.job_store import (
     OUTPUTS_DIR,
@@ -20,6 +22,7 @@ from services.job_store import (
     list_jobs,
     save_edited_data,
     save_edited_market_data,
+    save_edited_sourcing_data,
     save_pptx_path,
     update_job,
 )
@@ -38,6 +41,11 @@ class EditDataRequest(BaseModel):
 class EditMarketDataRequest(BaseModel):
     """Request body for saving edited MarketStudyData."""
     data: MarketStudyData
+
+
+class EditSourcingDataRequest(BaseModel):
+    """Request body for saving edited CompanySourcingResult."""
+    data: CompanySourcingResult
 
 
 def _sanitize_filename(name: str) -> str:
@@ -244,3 +252,70 @@ async def api_deep_research(job_id: str):
             "X-Accel-Buffering": "no",
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Company Sourcing endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.post("/jobs/{job_id}/source-companies")
+async def api_source_companies(job_id: str):
+    """
+    Start company sourcing from a completed one-pager (SSE stream).
+    Finds similar companies in DACH based on the company's profile.
+    """
+    job = await get_job(job_id)
+    if job is None:
+        raise HTTPException(404, "Job not found")
+
+    data = job.edited_data or job.research_data
+    if data is None:
+        raise HTTPException(400, "No research data available. Complete the one-pager first.")
+
+    if job.status == "researching":
+        raise HTTPException(409, "Research is already running for this job.")
+
+    await update_job(job_id, status="researching")
+
+    async def event_stream():
+        async for event in run_company_sourcing(job_id, job.company_name, data):
+            event_type = event.pop("_event_type", "progress")
+            yield f"event: {event_type}\ndata: {json.dumps(event)}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.get("/jobs/{job_id}/sourcing-results")
+async def api_get_sourcing_results(job_id: str):
+    """Get company sourcing results for a job."""
+    job = await get_job(job_id)
+    if job is None:
+        raise HTTPException(404, "Job not found")
+
+    data = job.edited_sourcing_data or job.sourcing_data
+    if data is None:
+        raise HTTPException(404, "No sourcing results available")
+
+    return data
+
+
+@router.put("/jobs/{job_id}/sourcing-data", response_model=Job)
+async def api_save_edited_sourcing_data(job_id: str, request: EditSourcingDataRequest):
+    """Save edited company sourcing data back to the job."""
+    job = await get_job(job_id)
+    if job is None:
+        raise HTTPException(404, "Job not found")
+
+    updated = await save_edited_sourcing_data(job_id, request.data)
+    if updated is None:
+        raise HTTPException(500, "Failed to save sourcing data")
+    return updated

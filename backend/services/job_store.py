@@ -10,6 +10,7 @@ from typing import Any, Optional
 
 import aiosqlite
 
+from models.company_sourcing import CompanySourcingResult
 from models.job import DeepResearchStep, Job, JobSummary, StepVerification
 from models.market_study import MarketStudyData
 from models.one_pager import OnePagerData, VerificationResult
@@ -31,6 +32,8 @@ _JSON_FIELDS = {
     "edited_data",
     "market_study_data",
     "edited_market_data",
+    "sourcing_data",
+    "edited_sourcing_data",
 }
 
 
@@ -59,6 +62,10 @@ def _row_to_job(row: aiosqlite.Row) -> Job:
         d["market_study_data"] = MarketStudyData(**json.loads(d["market_study_data"]))
     if d.get("edited_market_data"):
         d["edited_market_data"] = MarketStudyData(**json.loads(d["edited_market_data"]))
+    if d.get("sourcing_data"):
+        d["sourcing_data"] = CompanySourcingResult(**json.loads(d["sourcing_data"]))
+    if d.get("edited_sourcing_data"):
+        d["edited_sourcing_data"] = CompanySourcingResult(**json.loads(d["edited_sourcing_data"]))
 
     return Job(**d)
 
@@ -101,7 +108,8 @@ async def init_db() -> None:
             )
         """)
         # Add columns if upgrading from older schema
-        for col in ("market_study_data", "edited_market_data"):
+        for col in ("market_study_data", "edited_market_data",
+                     "sourcing_data", "edited_sourcing_data"):
             try:
                 await db.execute(f"ALTER TABLE jobs ADD COLUMN {col} TEXT")
             except Exception:
@@ -174,7 +182,8 @@ _ALLOWED_COLUMNS = {
     "company_name", "status", "im_filename", "im_file_path", "im_text",
     "provider", "model", "research_mode", "research_data", "verification",
     "deep_research_steps", "edited_data", "pptx_file_path",
-    "market_study_data", "edited_market_data", "updated_at",
+    "market_study_data", "edited_market_data",
+    "sourcing_data", "edited_sourcing_data", "updated_at",
 }
 
 
@@ -283,3 +292,17 @@ async def save_edited_market_data(
 ) -> Optional[Job]:
     """Save user-edited market study data to a job."""
     return await update_job(job_id, edited_market_data=data)
+
+
+async def save_sourcing_data(
+    job_id: str, data: CompanySourcingResult
+) -> Optional[Job]:
+    """Save company sourcing results to a job."""
+    return await update_job(job_id, sourcing_data=data)
+
+
+async def save_edited_sourcing_data(
+    job_id: str, data: CompanySourcingResult
+) -> Optional[Job]:
+    """Save user-edited company sourcing data to a job."""
+    return await update_job(job_id, edited_sourcing_data=data)

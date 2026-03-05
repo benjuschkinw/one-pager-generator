@@ -2,7 +2,7 @@
  * API client for the One-Pager Generator backend.
  */
 
-import { OnePagerData, MarketStudyData, MarketScopingContext, ResearchResponse, PromptDefinition, JobSummary, Job, DeepResearchSSEEvent } from "./types";
+import { OnePagerData, MarketStudyData, MarketScopingContext, ResearchResponse, PromptDefinition, JobSummary, Job, DeepResearchSSEEvent, CompanySourcingResult, StepModelInfo, ModelCapabilities } from "./types";
 
 const API_BASE = "/api";
 
@@ -453,4 +453,175 @@ export async function resetAllPrompts(): Promise<PromptDefinition[]> {
     throw new Error(err.detail || "Failed to reset prompts");
   }
   return res.json();
+}
+
+// ---------------------------------------------------------------------------
+// Company Sourcing
+// ---------------------------------------------------------------------------
+
+/**
+ * Start company sourcing from a completed one-pager (SSE stream).
+ */
+export function startCompanySourcing(
+  jobId: string,
+  onEvent: (event: string, data: DeepResearchSSEEvent) => void,
+  onComplete: () => void,
+  onError: (error: string) => void,
+): AbortController {
+  const controller = new AbortController();
+
+  (async () => {
+    try {
+      const response = await fetch(`${API_BASE}/jobs/${jobId}/source-companies`, {
+        method: "POST",
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({ detail: response.statusText }));
+        onError(err.detail || "Company sourcing failed");
+        return;
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        onError("No response stream available");
+        return;
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let completed = false;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        let currentEvent = "message";
+        for (const line of lines) {
+          if (line.startsWith("event: ")) {
+            currentEvent = line.slice(7).trim();
+          } else if (line.startsWith("data: ")) {
+            const dataStr = line.slice(6).trim();
+            if (!dataStr) continue;
+            try {
+              const data = JSON.parse(dataStr);
+              onEvent(currentEvent, data);
+              if (currentEvent === "complete") {
+                if (!completed) { completed = true; onComplete(); }
+              } else if (currentEvent === "error") {
+                completed = true;
+                onError(data.message || "Sourcing failed");
+              }
+            } catch {
+              // Skip malformed JSON
+            }
+            currentEvent = "message";
+          }
+        }
+      }
+
+      if (!completed) onComplete();
+    } catch (err) {
+      if ((err as Error).name === "AbortError") return;
+      onError(err instanceof Error ? err.message : "Sourcing connection failed");
+    }
+  })();
+
+  return controller;
+}
+
+/**
+ * Get sourcing results for a job.
+ */
+export async function getSourcingResults(id: string): Promise<CompanySourcingResult> {
+  const res = await fetch(`${API_BASE}/jobs/${id}/sourcing-results`);
+  if (!res.ok) {
+    if (res.status === 404) throw new Error("No sourcing results");
+    throw new Error("Failed to fetch sourcing results");
+  }
+  return res.json();
+}
+
+/**
+ * Save edited sourcing data.
+ */
+export async function saveSourcingData(id: string, data: CompanySourcingResult): Promise<void> {
+  const res = await fetch(`${API_BASE}/jobs/${id}/sourcing-data`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ data }),
+  });
+  if (!res.ok) throw new Error("Failed to save sourcing data");
+}
+
+// ---------------------------------------------------------------------------
+// Model Configuration
+// ---------------------------------------------------------------------------
+
+/**
+ * Get known models with their capabilities.
+ */
+export async function getKnownModels(): Promise<Record<string, ModelCapabilities>> {
+  const res = await fetch(`${API_BASE}/models/known`);
+  if (!res.ok) throw new Error("Failed to fetch models");
+  return res.json();
+}
+
+/**
+ * Get step model configs for a pipeline.
+ */
+export async function getStepModels(pipeline: "deep" | "market"): Promise<StepModelInfo[]> {
+  const res = await fetch(`${API_BASE}/models/steps/${pipeline}`);
+  if (!res.ok) throw new Error("Failed to fetch step models");
+  return res.json();
+}
+
+/**
+ * Override a step's model.
+ */
+export async function setStepModel(
+  pipeline: string,
+  step: string,
+  modelId: string,
+): Promise<{ step: string; model_id: string; warnings: string[] }> {
+  const res = await fetch(`${API_BASE}/models/steps/${pipeline}/${step}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...getAdminHeaders() },
+    body: JSON.stringify({ model_id: modelId }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Failed to update model");
+  }
+  return res.json();
+}
+
+/**
+ * Reset a single step's model to its default.
+ */
+export async function resetStepModel(pipeline: string, step: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/models/steps/${pipeline}/${step}`, {
+    method: "DELETE",
+    headers: { ...getAdminHeaders() },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Failed to reset step model");
+  }
+}
+
+/**
+ * Reset all model overrides.
+ */
+export async function resetAllModels(): Promise<void> {
+  const res = await fetch(`${API_BASE}/models/reset`, {
+    method: "POST",
+    headers: { ...getAdminHeaders() },
+  });
+  if (!res.ok) throw new Error("Failed to reset models");
 }

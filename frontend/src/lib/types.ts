@@ -156,6 +156,8 @@ export interface Job {
   pptx_file_path: string | null;
   market_study_data: MarketStudyData | null;
   edited_market_data: MarketStudyData | null;
+  sourcing_data: CompanySourcingResult | null;
+  edited_sourcing_data: CompanySourcingResult | null;
 }
 
 export interface PromptDefinition {
@@ -344,6 +346,90 @@ export interface MarketStudyData {
   buy_and_build: BuyAndBuild;
   strategic_implications: StrategicImplications;
 }
+
+// ---------------------------------------------------------------------------
+// Company Sourcing types
+// ---------------------------------------------------------------------------
+
+export interface CompanyProfile {
+  name: string;
+  hq_city: string;
+  hq_country: string;
+  website: string | null;
+  founded_year: number | null;
+  description: string;
+  industry: string;
+  nace_code: string | null;
+  sub_sector: string | null;
+  revenue_eur_m: number | null;
+  revenue_estimate: boolean;
+  ebitda_eur_m: number | null;
+  ebitda_margin_pct: number | null;
+  employee_count: number | null;
+  employee_estimate: boolean;
+  business_model: string;
+  ownership_type: string;
+  customer_segments: string[];
+  key_products_services: string[];
+  similarity_score: number;
+  similarity_rationale: string;
+  similarity_dimensions: Record<string, number>;
+  data_sources: string[];
+  data_freshness: string;
+  confidence: number;
+}
+
+export interface CompSummaryStats {
+  count: number;
+  avg_revenue_eur_m: number | null;
+  median_revenue_eur_m: number | null;
+  avg_ebitda_margin: number | null;
+  avg_employees: number | null;
+  country_distribution: Record<string, number>;
+  ownership_distribution: Record<string, number>;
+}
+
+export interface CompanySourcingResult {
+  seed_company: string;
+  seed_industry: string;
+  seed_revenue_range: string;
+  search_region: string;
+  search_criteria: Record<string, unknown>;
+  companies: CompanyProfile[];
+  summary: CompSummaryStats;
+  executive_summary: string;
+}
+
+// ---------------------------------------------------------------------------
+// Model configuration types
+// ---------------------------------------------------------------------------
+
+export interface ModelCapabilities {
+  web_search: boolean;
+  tool_calling: boolean;
+  long_context: boolean;
+  structured_output: boolean;
+  provider: string;
+  notes: string;
+}
+
+export interface StepModelInfo {
+  step: string;
+  pipeline: string;
+  current_model: string;
+  default_model: string;
+  is_override: boolean;
+  description: string;
+  why_recommended: string;
+  requires_web_search: boolean;
+  requires_tool_calling: boolean;
+  model_capabilities: ModelCapabilities | null;
+  warnings: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
 
 const _EMPTY_PESTEL_FACTOR: PestelFactor = { rating: "neutral", points: [] };
 const _EMPTY_FORCE: ForceAssessment = { rating: "medium", explanation: "" };
