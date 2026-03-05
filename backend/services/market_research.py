@@ -435,12 +435,12 @@ async def run_market_research(
             logger.error("Step %s failed: %s", step_name, e, exc_info=True)
             step = _find(step_name)
             step.status = "error"
-            step.error_message = str(e)[:500]
+            step.error_message = str(e)[:500]  # full detail kept server-side
             step.completed_at = _now_iso()
             await _save_step(job_id, step)
             return _make_event(
                 step_name, "error",
-                f"{MARKET_STEP_LABELS[step_name]} failed: {str(e)[:200]}",
+                f"{MARKET_STEP_LABELS[step_name]} failed. Please try again.",
                 model=step.model_used, duration=elapsed,
             )
 
@@ -533,7 +533,7 @@ async def run_market_research(
         await _save_step(job_id, merge_step)
         yield _make_event(
             "merge", "error",
-            f"Merge failed: {str(e)[:200]}",
+            "Merge failed. Please try again.",
             model=merge_step.model_used, duration=elapsed,
         )
 
@@ -602,7 +602,7 @@ async def run_market_research(
         await _save_step(job_id, verify_step)
         yield _make_event(
             "verify_final", "error",
-            f"Verification failed: {str(e)[:200]}",
+            "Verification failed. Please try again.",
             model=verify_step.model_used, duration=elapsed,
         )
 
@@ -633,6 +633,6 @@ async def run_market_research(
         await update_job(job_id, status="failed")
         yield _make_event(
             "complete", "error",
-            f"Failed to save results: {str(e)[:200]}",
+            "Failed to save results. Please try again.",
             event_type="complete",
         )

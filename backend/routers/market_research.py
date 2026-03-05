@@ -25,6 +25,17 @@ _ALLOWED_SCOPING_KEYS = {
 }
 
 
+def _sanitize_market_name(name: str) -> str:
+    """Strip characters that could be used for prompt structure injection."""
+    # Remove triple backticks, markdown headings, and control sequences
+    name = re.sub(r"[`#]{3,}", "", name)
+    # Remove newlines and carriage returns (prevent prompt line injection)
+    name = name.replace("\n", " ").replace("\r", " ")
+    # Collapse multiple spaces
+    name = re.sub(r"\s{2,}", " ", name)
+    return name.strip()
+
+
 def _sanitize_scoping(raw: dict) -> dict:
     """Validate and sanitize scoping context: whitelist keys, limit lengths."""
     clean: dict[str, str] = {}
@@ -56,7 +67,7 @@ async def api_start_market_research(
     - **scoping_context**: JSON string with scoping answers (product scope, customer, etc.)
     """
     # --- Input validation ---
-    market_name = market_name.strip()
+    market_name = _sanitize_market_name(market_name)
     if not market_name:
         raise HTTPException(400, "Market name is required")
     if len(market_name) > _MAX_MARKET_NAME_LEN:
