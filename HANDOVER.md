@@ -1,49 +1,149 @@
 # Handover: M&A One-Pager Generator
 
 **Branch:** `claude/review-progress-5vIvn`
-**Date:** 2026-03-04
-**Status:** All phases implemented — Persistent Jobs + Deep Research with SSE streaming.
+**Date:** 2026-03-05
+**Status:** Fully functional — Company One-Pager, Market Research, and Company Sourcing pipelines all implemented.
 
 ---
 
 ## Current State Summary
 
-The app is a fully functional M&A One-Pager generator with persistent job storage and multi-step deep research.
+The app is an M&A research platform with three core features:
 
-**What works:**
-- Single-shot AI research (Claude Opus 4 with web search, or any model via OpenRouter)
-- Deep research: 7-step AI pipeline with parallel execution, per-step recheck, SSE streaming
-- PDF IM extraction with 8-module structured prompts
-- Cross-model verification (algorithmic + GPT-4.1) — both standard and deep research
-- 3-layer anti-hallucination: prompt guards + per-step 2nd AI recheck + final cross-verification
-- Persistent job storage (SQLite + filesystem) — jobs survive browser refresh
-- Job history page with status tracking
-- 3-column inline editor matching slide layout with auto-save
-- PPTX generation from template
-- 13 editable AI prompts with admin key auth, grouped by category
-- Real-time deep research progress stepper via SSE
+1. **Company One-Pager** — AI-powered research → editable 3-column layout → PPTX export
+2. **Market Research** — 8-step AI pipeline → 10-section market study editor → PPTX export
+3. **Company Sourcing** — 4-step pipeline to find similar DACH companies from a completed one-pager
+
+### What works end-to-end:
+
+- **Company One-Pager:** Single-shot or 7-step deep research (Claude Opus 4, Gemini 2.5 Pro, GPT-4.1), 3-layer anti-hallucination, PDF IM extraction, inline editor, PPTX generation
+- **Market Research:** 8-step pipeline (market sizing, segmentation, competition, trends/PESTEL, Porter's/value chain, buy & build, merge, verify) with scoping questionnaire (4 dimensions), per-step 2nd AI recheck, 10-section editor, PPTX export
+- **Company Sourcing:** 4-step pipeline (extract DNA → search DACH → verify & enrich → rank & synthesize) with SSE streaming, triggered from one-pager editor
+- **Shared Infrastructure:** Persistent SQLite jobs, SSE real-time progress, admin-protected prompt editing (30+ prompts), per-step model configuration with runtime overrides via Settings page
+
+### Running the app:
+
+```bash
+# Backend
+cd backend && pip install -r requirements.txt
+ANTHROPIC_API_KEY=... OPENROUTER_API_KEY=... uvicorn main:app --host 0.0.0.0 --port 8000
+
+# Frontend
+cd frontend && npm install && npm run dev -- -p 3001
+```
+
+Environment variables: `ANTHROPIC_API_KEY` (required), `OPENROUTER_API_KEY` (required for deep/market/sourcing), `ADMIN_API_KEY` (optional, for prompt editing).
 
 ---
 
-## Completed Work
+## Full Architecture
 
-### Phase A: Persistent Job Storage
+### Pages & Routes
 
-Every research run is a persistent "job" stored in SQLite with:
-- Uploaded IM PDF on disk (`data/uploads/{job_id}/original.pdf`)
-- AI research results (OnePagerData + verification) in SQLite JSON columns
-- User edits auto-saved (debounced 500ms) to `edited_data` column
-- Generated PPTX on disk (`data/outputs/{job_id}/one_pager.pptx`) and downloadable
+| Page | URL | Purpose |
+|------|-----|---------|
+| Input | `/` | Company or Market toggle, PDF upload, Standard/Deep mode, scoping questionnaire (market) |
+| Job History | `/jobs` | All jobs with status badges, grouped by type |
+| Company Editor | `/editor/[id]` | 3-column one-pager editor, deep research trigger, PPTX generation |
+| Market Editor | `/market-editor/[id]` | 10-section market study editor, PPTX export, JSON export |
+| Company Sourcing | `/editor/[id]/sourcing` | Find similar companies, triggered from one-pager editor |
+| Settings | `/settings` | View/override AI models per pipeline step |
 
-**Pages:** `/jobs` (history list), `/editor/[id]` (job-aware editor)
-**Backend:** SQLite via aiosqlite, `/api/jobs` REST API, file storage in `data/`
+### Backend API Endpoints
 
-### Phase B: Deep Research Pipeline
+```
+Routers:
+├── POST /api/research              → ai_research.py (standard one-pager)
+├── POST /api/generate              → pptx_generator.py (standalone)
+│
+├── GET  /api/jobs                  → job_store.py (list all)
+├── GET  /api/jobs/{id}             → job_store.py (detail)
+├── DEL  /api/jobs/{id}             → job_store.py (delete)
+├── PUT  /api/jobs/{id}/data        → job_store.py (save edits)
+├── POST /api/jobs/{id}/generate    → pptx_generator.py (from job)
+├── GET  /api/jobs/{id}/im          → file download (PDF)
+├── GET  /api/jobs/{id}/pptx        → file download (PPTX)
+├── POST /api/jobs/{id}/research/deep    → SSE deep research (7 steps)
+├── POST /api/jobs/{id}/sourcing         → SSE company sourcing (4 steps)
+│
+├── POST /api/market-research       → market_research.py (8-step SSE)
+├── PUT  /api/jobs/{id}/market-data → save edited market data
+├── POST /api/jobs/{id}/market-pptx → market PPTX generation
+│
+├── GET  /api/prompts               → prompt_manager.py (read-only)
+├── PUT  /api/prompts/*             → prompt_manager.py (admin auth)
+│
+├── GET  /api/models/deep-research     → per-step model config
+├── GET  /api/models/market-research   → per-step model config
+├── PUT  /api/models/deep-research/{step}   → override model
+├── PUT  /api/models/market-research/{step} → override model
+├── POST /api/models/reset              → reset all to defaults
+│
+├── GET  /api/providers             → available AI providers
+└── GET  /api/health
+```
 
-Multi-step AI pipeline with explicit model selection per sub-task:
+### Backend Services
 
-| Step | Task | Model | Provider |
-|------|------|-------|----------|
+| Service | Purpose |
+|---------|---------|
+| `ai_research.py` | Claude/OpenRouter multi-turn standard research |
+| `deep_research.py` | 7-step deep research pipeline with SSE, parallel steps 2-5 |
+| `market_research.py` | 8-step market study pipeline with SSE, parallel steps 1-3 then 4-6 |
+| `company_sourcing.py` | 4-step company sourcing pipeline with SSE (extract DNA → search → verify → rank) |
+| `job_store.py` | SQLite CRUD via aiosqlite |
+| `verification.py` | Algorithmic + AI cross-verification |
+| `prompt_manager.py` | In-memory prompt store (30+ prompts across all pipelines) |
+| `pdf_extractor.py` | PDF text extraction (pypdfium2 + pdfplumber fallback) |
+| `pptx_generator.py` | Company one-pager PPTX from template |
+| `market_pptx_generator.py` | 10-slide market study PPTX generation |
+| `chart_generator.py` | Matplotlib donut + bar charts for PPTX |
+| `template_builder.py` | Template construction utilities |
+
+### Frontend Components (key files)
+
+| Component | Purpose |
+|-----------|---------|
+| `app/page.tsx` | Input page — company/market toggle, PDF upload, scoping form |
+| `app/editor/[id]/page.tsx` | Company one-pager editor (3-column layout) |
+| `app/editor/[id]/sourcing/page.tsx` | Company sourcing results + SSE progress |
+| `app/market-editor/[id]/page.tsx` | 10-section market study editor |
+| `app/settings/page.tsx` | Model configuration per pipeline step |
+| `app/jobs/page.tsx` | Job history list |
+| `components/DeepResearchProgress.tsx` | SSE-connected vertical stepper |
+| `components/DeepResearchResults.tsx` | Collapsible per-step results with sources |
+| `components/PromptEditor.tsx` | Grouped prompt editor (standard/deep/market/sourcing) |
+| `components/market/*.tsx` | 10+ section editors (executive summary, sizing, segmentation, competition, trends, PESTEL, Porter's, value chain, buy & build, strategic implications) |
+| `lib/api.ts` | Full API client (research, jobs, SSE, prompts, models) |
+| `lib/types.ts` | TypeScript types matching all backend models |
+
+### Config & Models
+
+| File | Purpose |
+|------|---------|
+| `config/models.py` | Per-step model selection for deep research + market research, known model registry, recheck model mapping, runtime overrides |
+| `models/one_pager.py` | OnePagerData, VerificationResult, ResearchResponse |
+| `models/job.py` | Job, JobSummary, DeepResearchStep, StepVerification |
+| `models/market_study.py` | MarketStudyData (10 sections: executive summary, market sizing, segmentation, competitive landscape, trends, PESTEL, Porter's, value chain, buy & build, strategic implications) |
+| `models/company_sourcing.py` | CompanyProfile, CompSummaryStats, CompanySourcingResult |
+
+### Storage
+
+```
+data/
+├── jobs.db              → SQLite database (all job metadata + research results)
+├── uploads/{id}/        → Uploaded IM PDFs
+└── outputs/{id}/        → Generated PPTX files
+```
+
+---
+
+## AI Pipeline Details
+
+### Company One-Pager — Deep Research (7 steps)
+
+| Step | Task | Default Model | Provider |
+|------|------|---------------|----------|
 | 1 | IM Extraction | Claude Opus 4 | OpenRouter |
 | 2 | Web Research | Claude Opus 4 | Anthropic (web search) |
 | 3 | Financial Deep-Dive | Claude Opus 4 | Anthropic (web search) |
@@ -52,181 +152,91 @@ Multi-step AI pipeline with explicit model selection per sub-task:
 | 6 | Merge & Synthesize | Claude Opus 4 | OpenRouter |
 | 7 | Cross-Verify | GPT-4.1 | OpenRouter |
 
-- Steps 2-5 run in parallel via `asyncio.gather()`
-- Each step has per-step 2nd AI recheck by a different model family
-- Progress streamed via SSE (`POST /api/jobs/{id}/research/deep`)
-- All results saved to job's `deep_research_steps` column
+Steps 2-5 run in parallel. Each step has per-step 2nd AI recheck by a different model family.
 
-### Phase C: Deep Research Frontend
+### Market Research (8 steps)
 
-- `DeepResearchProgress.tsx` — SSE-connected vertical stepper with progress bar
-- `DeepResearchResults.tsx` — Collapsible per-step results with verification details
-- Research depth toggle (Standard/Deep) on input page
-- Editor auto-starts deep research from `?deep=true` URL param
-- "Run Deep Research" button in editor toolbar
-- `PromptEditor.tsx` grouped into Standard / Deep Research / Other sections
+| Step | Task | Default Model | Provider |
+|------|------|---------------|----------|
+| 1 | Market Sizing (TAM/SAM/SOM) | Claude Opus 4 | Anthropic (web search) |
+| 2 | Segmentation | Claude Opus 4 | Anthropic (web search) |
+| 3 | Competitive Landscape | Claude Opus 4 | Anthropic (web search) |
+| 4 | Trends + PESTEL | Gemini 2.5 Pro | OpenRouter |
+| 5 | Porter's + Value Chain | Claude Opus 4 | Anthropic (web search) |
+| 6 | Buy & Build Potential | Claude Opus 4 | Anthropic (web search) |
+| 7 | Merge | Claude Opus 4 | OpenRouter |
+| 8 | Cross-Verify | GPT-4.1 | OpenRouter |
 
-### Security Fixes (Gemini Code Review)
+Steps 1-3 parallel, then steps 4-6 parallel. Per-step recheck on steps 1-6.
 
-| # | Severity | Issue | Fix |
-|---|----------|-------|-----|
-| 1 | **Critical** | `/api/prompts` mutation endpoints publicly accessible | Added `X-Admin-Key` header auth via `ADMIN_API_KEY` env var |
-| 2 | **Critical** | Prompt injection via editable templates + untrusted input | Added `_sanitize_company_name()` + injection guardrail in system prompt |
-| 3 | **Medium** | HTTP header injection via redundant `.replace()` in filename | Removed redundant call |
-| 4 | **Low** | Unused `copy` import in `prompt_manager.py` | Removed |
+### Company Sourcing (4 steps)
+
+| Step | Task | Default Model | Provider |
+|------|------|---------------|----------|
+| 1 | Extract Company DNA | Claude Opus 4 | Anthropic (web search) |
+| 2 | Search DACH Companies | Claude Opus 4 | Anthropic (web search) |
+| 3 | Verify & Enrich | Claude Opus 4 | Anthropic (web search) |
+| 4 | Rank & Synthesize | Claude Opus 4 | Anthropic (web search) |
+
+### Anti-Hallucination (3 layers, all pipelines)
+
+1. **Prompt-level guards** — "never invent data, return null if unknown, prefix inferences with ~, cite sources"
+2. **Per-step 2nd AI recheck** — Each step's output rechecked by a different model family (Claude→GPT, Gemini→Claude, GPT→Claude)
+3. **Final cross-verification** — Algorithmic checks + AI cross-verification on merged result
 
 ---
 
-## Full Architecture Reference
+## Security Status
 
-### System Overview
+### Fixed
+- Prompt injection via scoping_context, market_name, region (sanitization + allowlists)
+- Input size limits on all form fields
+- Error message scrubbing in SSE (generic client messages, detailed server logs)
+- Admin key auth on prompt mutation endpoints
+
+### Open (documented in `docs/KNOWN_ISSUES.md`)
+- S4: Dynamic SQL column names — needs allowlist validation
+- S6: No auth on research endpoints — needs rate limiting before public deployment
+- S7: Prompts readable without auth
+- S8: Race condition in `_save_step` (read-modify-write without locking)
+- S9: No dedup guard on market research endpoint
+- S10: Source URLs not strictly validated on frontend
+- S12: JSON export filename not sanitized
+
+---
+
+## Docs
+
+| File | Contents |
+|------|----------|
+| `docs/ARCHITECTURE.md` | System architecture diagram, data flow, all endpoints |
+| `docs/BEST_PRACTICES.md` | AI-led M&A/PE market research best practices (sourcing, quality framework) |
+| `docs/KNOWN_ISSUES.md` | All security + code quality issues with status and planned fixes |
+| `PLAN.md` | Implementation plan for known issues, best practices, and company sourcing |
+
+---
+
+## Recent Git History (latest first)
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│  FRONTEND (Next.js 14+ / TypeScript / Tailwind CSS)               │
-│  Port: 3001                                                        │
-│                                                                     │
-│  / (Input Page)         /editor/[id] (Job Editor)                   │
-│  ┌─────────────────┐   ┌──────────────────────────────────┐       │
-│  │ Company Name     │   │ DeepResearchProgress (SSE)       │       │
-│  │ PDF Upload       │   │ DeepResearchResults (collapsible)│       │
-│  │ Mode: Std/Deep   │   │ VerificationBanner               │       │
-│  │ PromptEditor     │──→│ HeaderSection + KeyFacts          │       │
-│  │ Recent Jobs      │   │ BulletEditor (desc + portfolio)  │       │
-│  └─────────────────┘   │ RationaleSection + Revenue       │       │
-│                          │ FinancialsTable + Criteria       │       │
-│  /jobs (Job History)     │ Generate PPTX (sticky bottom)   │       │
-│  ┌─────────────────┐   └──────────────────────────────────┘       │
-│  │ JobCard list      │                                              │
-│  │ Status badges     │                                              │
-│  └─────────────────┘                                                │
-└──────────────────────────────────────────────────────────────────┘
-                              │ HTTP
-┌──────────────────────────────────────────────────────────────────┐
-│  BACKEND (FastAPI / Python)                                        │
-│  Port: 8000                                                        │
-│                                                                     │
-│  Routers:                                                           │
-│  ├── POST /api/research     → ai_research.py + verification.py    │
-│  ├── POST /api/generate     → pptx_generator.py                   │
-│  ├── GET  /api/jobs         → job_store.py (list)                  │
-│  ├── GET  /api/jobs/{id}    → job_store.py (detail)                │
-│  ├── DEL  /api/jobs/{id}    → job_store.py (delete)                │
-│  ├── PUT  /api/jobs/{id}/data     → job_store.py (save edits)     │
-│  ├── POST /api/jobs/{id}/generate → pptx_generator.py (from job)  │
-│  ├── GET  /api/jobs/{id}/im       → file download (PDF)           │
-│  ├── GET  /api/jobs/{id}/pptx     → file download (PPTX)          │
-│  ├── POST /api/jobs/{id}/research/deep → SSE deep research        │
-│  ├── GET  /api/prompts      → prompt_manager.py (read-only)       │
-│  ├── PUT  /api/prompts/*    → prompt_manager.py (auth required)   │
-│  ├── GET  /api/providers    → ai_research.py                      │
-│  └── GET  /api/health                                               │
-│                                                                     │
-│  Services:                                                          │
-│  ├── ai_research.py      → Claude/OpenRouter multi-turn loop      │
-│  ├── deep_research.py    → 7-step pipeline, parallel, SSE events  │
-│  ├── job_store.py        → SQLite CRUD via aiosqlite              │
-│  ├── pdf_extractor.py    → pypdfium2 + pdfplumber fallback        │
-│  ├── verification.py     → Algorithmic + AI cross-check           │
-│  ├── pptx_generator.py   → python-pptx template population        │
-│  ├── chart_generator.py  → matplotlib donut + bar charts          │
-│  └── prompt_manager.py   → In-memory prompt store (13 prompts)    │
-│                                                                     │
-│  Config:                                                            │
-│  └── config/models.py    → Per-step model selection + recheck map  │
-│                                                                     │
-│  External APIs:                                                     │
-│  ├── Anthropic (Claude Opus 4) — research with web search         │
-│  ├── OpenRouter (GPT-4.1)      — cross-verification               │
-│  ├── OpenRouter (Gemini 2.5 Pro) — market analysis (deep)         │
-│  └── OpenRouter (any model)    — fallback / per-step selection     │
-│                                                                     │
-│  Storage:                                                           │
-│  ├── data/jobs.db        → SQLite database                         │
-│  ├── data/uploads/{id}/  → Uploaded IM PDFs                        │
-│  └── data/outputs/{id}/  → Generated PPTX files                   │
-└──────────────────────────────────────────────────────────────────┘
+ffc5420 Fix sourcing pipeline: don't overwrite deep_research_steps or job status
+8391b46 Add company sourcing pipeline, per-step model configuration, and source triangulation
+81502b2 Fix remaining security issues, add docs, update plan with company sourcing
+877511b Security: sanitize market_name input, scrub error messages from SSE
+18d33c5 Polish: switch UI to English, fix UX issues, improve prompt quality
+a08274c Polish market research: QA, UX, security fixes from 3-agent review
+c61f60c Add market research scoping questionnaire (4-dimension intake)
+e22a8e1 Add market research feature: full-stack 8-step pipeline with 10-slide PPTX export
+5106fe1 Simplify SSE endpoint to use async generator directly
+4b574f5 Update HANDOVER.md with all phases complete
+fa142d5 Phase B+C: Deep research pipeline with SSE streaming and frontend
+38a2801 Replace legacy editor page with redirect to /jobs
+62cbef8 Complete Phase A: job persistence backend wiring + frontend pages
+a48de62 Phase A: Add persistent job storage (backend + frontend foundation)
+9cf3d7b Refine plan: editable prompts, anti-hallucination, results UI, PPTX
+58355ca Add persistent jobs + deep research plan, update HANDOVER
+74d7c2d Fix security issues from Gemini code review (PR #1)
+79312e2 Merge claude/review-progress-5vIvn into main
+82328d5 Final HANDOVER update: mark all phases complete with pipeline verification
+9ee0272 Professional frontend redesign for Constellation Capital
 ```
-
-### Data Flow
-
-**Standard Research:**
-```
-User → Input Page → POST /api/research → AI research → Verification
-    → SQLite job + /editor/{id} → Edit inline → POST /api/jobs/{id}/generate → PPTX
-```
-
-**Deep Research:**
-```
-User → Input Page (Deep mode) → POST /api/research → Standard research
-    → /editor/{id}?deep=true → POST /api/jobs/{id}/research/deep (SSE)
-    → 7 steps (parallel 2-5) → Per-step recheck → Merge → Cross-verify
-    → Updated job data → Editor with DeepResearchResults
-```
-
-### Anti-Hallucination (3 layers)
-
-1. **Prompt-level guards** — Every step prompt enforces "never invent data, return null if unknown, prefix inferences with ~, cite sources"
-2. **Per-step 2nd AI recheck** — Each step's output rechecked by a different model family (Claude→GPT, Gemini→Claude, GPT→Claude)
-3. **Final cross-verification** — Algorithmic checks + AI cross-verification on the merged result, including inter-step consistency checks
-
-### 13 Editable Prompts
-
-| Category | Prompt | Description |
-|----------|--------|-------------|
-| Standard | `research_system` | System prompt for Anthropic research (with web search) |
-| Standard | `research_system_no_search` | System prompt for OpenRouter research (no web search) |
-| Standard | `research_user_with_im` | User prompt when IM PDF is provided |
-| Standard | `research_user_no_im` | User prompt for public research only |
-| Standard | `verification` | Cross-verification system prompt |
-| Deep | `deep_im_extraction` | IM document extraction sub-step |
-| Deep | `deep_web_research` | Company basics via web search |
-| Deep | `deep_financials` | Financial deep-dive (Bundesanzeiger, etc.) |
-| Deep | `deep_management` | Management team research |
-| Deep | `deep_market` | Market & competitive analysis |
-| Deep | `deep_merge` | Merge sub-task results into final OnePagerData |
-| Deep | `deep_step_recheck` | Per-step 2nd AI verification |
-| Deep | `deep_final_verify` | Enhanced final cross-verification |
-
-### Environment Variables
-
-| Variable | Required | Purpose |
-|----------|----------|---------|
-| `ANTHROPIC_API_KEY` | One of these required | Claude API for research + web search |
-| `OPENROUTER_API_KEY` | | OpenRouter for verification + deep research models |
-| `ADMIN_API_KEY` | Optional | Enables prompt editing via API |
-| `MODEL_IM_EXTRACTION` | Optional | Override model for IM extraction step |
-| `MODEL_MARKET` | Optional | Override model for market analysis step |
-| `MODEL_MERGE` | Optional | Override model for merge step |
-| `MODEL_VERIFY` | Optional | Override model for final verification step |
-
-### Key Files
-
-| File | Purpose |
-|------|---------|
-| `backend/main.py` | FastAPI app, CORS, router mounts, DB init |
-| `backend/config/models.py` | Per-step model config + recheck model mapping |
-| `backend/models/job.py` | Job, JobSummary, DeepResearchStep, StepVerification |
-| `backend/models/one_pager.py` | OnePagerData + VerificationResult + ResearchResponse |
-| `backend/routers/research.py` | POST /api/research — creates job + AI research |
-| `backend/routers/jobs.py` | Jobs REST API + SSE deep research endpoint |
-| `backend/routers/generate.py` | POST /api/generate — standalone PPTX generation |
-| `backend/routers/prompts.py` | Prompt CRUD with admin auth |
-| `backend/services/ai_research.py` | Claude/OpenRouter multi-turn research |
-| `backend/services/deep_research.py` | 7-step deep research pipeline with SSE |
-| `backend/services/job_store.py` | SQLite CRUD via aiosqlite |
-| `backend/services/verification.py` | Algorithmic + AI cross-verification |
-| `backend/services/prompt_manager.py` | In-memory prompt store (13 prompts) |
-| `backend/services/pdf_extractor.py` | PDF text extraction |
-| `backend/services/pptx_generator.py` | PPTX template population |
-| `backend/services/chart_generator.py` | Matplotlib donut + bar charts |
-| `frontend/src/app/page.tsx` | Input page with Standard/Deep toggle |
-| `frontend/src/app/jobs/page.tsx` | Job history page |
-| `frontend/src/app/editor/[id]/page.tsx` | Job-aware editor with deep research |
-| `frontend/src/app/editor/page.tsx` | Legacy redirect to /jobs |
-| `frontend/src/app/components/DeepResearchProgress.tsx` | SSE progress stepper |
-| `frontend/src/app/components/DeepResearchResults.tsx` | Collapsible step results |
-| `frontend/src/app/components/PromptEditor.tsx` | Grouped prompt editor |
-| `frontend/src/app/components/JobCard.tsx` | Compact card for job list |
-| `frontend/src/lib/api.ts` | API client (research, jobs, SSE, prompts) |
-| `frontend/src/lib/types.ts` | TypeScript types matching backend models |
