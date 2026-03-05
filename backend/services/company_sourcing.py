@@ -12,21 +12,19 @@ import asyncio
 import json
 import logging
 import time
-from typing import AsyncGenerator, Optional
+from typing import AsyncGenerator
 
-from config.models import DEEP_RESEARCH_MODELS, RECHECK_MODELS
 from models.company_sourcing import CompanyProfile, CompanySourcingResult, CompSummaryStats
-from models.job import DeepResearchStep, StepVerification
-from models.one_pager import FieldFlag, OnePagerData
+from models.job import DeepResearchStep
+from models.one_pager import OnePagerData
 from services.deep_research import (
     _call_anthropic_with_search,
     _call_openrouter,
     _make_event,
     _now_iso,
     _parse_partial_json,
-    _get_job_lock,
 )
-from services.job_store import get_job, save_sourcing_data, update_job
+from services.job_store import save_sourcing_data
 from services.prompt_manager import get_prompt_template
 
 logger = logging.getLogger(__name__)
@@ -47,21 +45,11 @@ SOURCING_MODELS = {
 
 
 async def _save_step(job_id: str, step: DeepResearchStep) -> None:
-    """Update a single step inside the job's deep_research_steps list."""
-    async with _get_job_lock(job_id):
-        job = await get_job(job_id)
-        if job is None:
-            return
-        steps = list(job.deep_research_steps or [])
-        replaced = False
-        for i, s in enumerate(steps):
-            if s.step_name == step.step_name:
-                steps[i] = step
-                replaced = True
-                break
-        if not replaced:
-            steps.append(step)
-        await update_job(job_id, deep_research_steps=steps)
+    """Track sourcing step progress. Intentionally does NOT write to
+    deep_research_steps to avoid overwriting actual deep research data."""
+    # Progress is communicated via SSE events; no DB persistence needed
+    # for sourcing steps (the final result goes into sourcing_data).
+    pass
 
 
 # ─── Synchronous step implementations ──────────────────────────────────────
@@ -160,8 +148,6 @@ async def run_company_sourcing(
             status="pending",
         ))
 
-    await update_job(job_id, deep_research_steps=all_steps)
-
     def _find(name: str) -> DeepResearchStep:
         return next(s for s in all_steps if s.step_name == name)
 
@@ -190,7 +176,6 @@ async def run_company_sourcing(
         dna_step.completed_at = _now_iso()
         await _save_step(job_id, dna_step)
         yield _make_event("extract_dna", "error", "DNA extraction failed", model=dna_step.model_used, duration=elapsed)
-        await update_job(job_id, status="failed")
         yield _make_event("complete", "error", "Sourcing failed at DNA extraction", event_type="complete")
         return
 
@@ -246,7 +231,6 @@ async def run_company_sourcing(
     )
 
     if not all_companies:
-        await update_job(job_id, status="completed")
         result = CompanySourcingResult(
             seed_company=company_name,
             seed_industry=dna.get("industry", ""),
@@ -348,7 +332,6 @@ async def run_company_sourcing(
         )
 
         await save_sourcing_data(job_id, sourcing_result)
-        await update_job(job_id, status="completed")
 
         rank_step.result_json = {"ranked_count": len(company_profiles)}
         rank_step.status = "done"
@@ -373,6 +356,5 @@ async def run_company_sourcing(
         rank_step.error_message = str(e)[:500]
         rank_step.completed_at = _now_iso()
         await _save_step(job_id, rank_step)
-        await update_job(job_id, status="failed")
         yield _make_event("rank_synthesize", "error", "Ranking failed", model=rank_step.model_used, duration=elapsed)
         yield _make_event("complete", "error", "Sourcing failed", event_type="complete")

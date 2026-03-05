@@ -276,12 +276,17 @@ async def api_source_companies(job_id: str):
     if job.status == "researching":
         raise HTTPException(409, "Research is already running for this job.")
 
-    await update_job(job_id, status="researching")
+    # Save original status to restore after sourcing (don't clobber "completed")
+    original_status = job.status
 
     async def event_stream():
-        async for event in run_company_sourcing(job_id, job.company_name, data):
-            event_type = event.pop("_event_type", "progress")
-            yield f"event: {event_type}\ndata: {json.dumps(event)}\n\n"
+        try:
+            async for event in run_company_sourcing(job_id, job.company_name, data):
+                event_type = event.pop("_event_type", "progress")
+                yield f"event: {event_type}\ndata: {json.dumps(event)}\n\n"
+        finally:
+            # Restore original job status regardless of sourcing outcome
+            await update_job(job_id, status=original_status)
 
     return StreamingResponse(
         event_stream(),

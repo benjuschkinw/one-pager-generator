@@ -308,6 +308,23 @@ class _DynamicModelDict(dict):
         configs = DEEP_RESEARCH_STEP_CONFIGS if self._getter == get_deep_model else MARKET_RESEARCH_STEP_CONFIGS
         return key in configs
 
+    def keys(self):
+        configs = DEEP_RESEARCH_STEP_CONFIGS if self._getter == get_deep_model else MARKET_RESEARCH_STEP_CONFIGS
+        return configs.keys()
+
+    def values(self):
+        return [self._getter(k) for k in self.keys()]
+
+    def items(self):
+        return [(k, self._getter(k)) for k in self.keys()]
+
+    def __iter__(self):
+        return iter(self.keys())
+
+    def __len__(self):
+        configs = DEEP_RESEARCH_STEP_CONFIGS if self._getter == get_deep_model else MARKET_RESEARCH_STEP_CONFIGS
+        return len(configs)
+
 
 DEEP_RESEARCH_MODELS = _DynamicModelDict(get_deep_model)
 MARKET_RESEARCH_MODELS = _DynamicModelDict(get_market_model)
