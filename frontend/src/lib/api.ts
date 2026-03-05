@@ -2,7 +2,7 @@
  * API client for the One-Pager Generator backend.
  */
 
-import { OnePagerData, MarketStudyData, ResearchResponse, PromptDefinition, JobSummary, Job, DeepResearchSSEEvent } from "./types";
+import { OnePagerData, MarketStudyData, MarketScopingContext, ResearchResponse, PromptDefinition, JobSummary, Job, DeepResearchSSEEvent } from "./types";
 
 const API_BASE = "/api";
 
@@ -258,6 +258,7 @@ export function startDeepResearch(
 export function startMarketResearch(
   marketName: string,
   region: string,
+  scopingContext: MarketScopingContext,
   onJobCreated: (jobId: string) => void,
   onEvent: (event: string, data: DeepResearchSSEEvent) => void,
   onComplete: () => void,
@@ -270,6 +271,7 @@ export function startMarketResearch(
       const formData = new FormData();
       formData.append("market_name", marketName);
       formData.append("region", region);
+      formData.append("scoping_context", JSON.stringify(scopingContext));
 
       const response = await fetch(`${API_BASE}/market-research`, {
         method: "POST",

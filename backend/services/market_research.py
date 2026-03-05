@@ -61,6 +61,37 @@ _ANTHROPIC_SEARCH_STEPS = {
     "porters_value_chain", "buy_and_build",
 }
 
+# Labels for scoping fields
+_SCOPING_LABELS = {
+    "product_scope": "Product Scope / Inclusions & Exclusions",
+    "value_chain_focus": "Value Chain Focus",
+    "geographic_detail": "Geographic Detail",
+    "time_horizon": "Time Horizon",
+    "customer_type": "Customer Type (B2B/B2C)",
+    "customer_detail": "Customer Characteristics",
+    "market_metric": "Market Size Metric",
+    "study_purpose": "Study Purpose",
+}
+
+
+def _build_scoping_block(scoping: dict) -> str:
+    """Build a structured scoping context block for injection into prompts."""
+    if not scoping:
+        return ""
+    lines = ["## SCOPING CONTEXT (user-provided — respect these constraints strictly)"]
+    for key, label in _SCOPING_LABELS.items():
+        val = scoping.get(key, "")
+        if val and val not in ("", "entire", "current", "b2b", "value", "market_entry"):
+            # Only include non-default values
+            lines.append(f"- **{label}**: {val}")
+        elif val and key in ("value_chain_focus", "time_horizon", "customer_type",
+                             "market_metric", "study_purpose"):
+            # Always include select fields
+            lines.append(f"- **{label}**: {val}")
+    if len(lines) == 1:
+        return ""
+    return "\n".join(lines) + "\n\n"
+
 
 def _build_market_study_schema() -> str:
     """Build a JSON schema description for MarketStudyData."""
@@ -69,12 +100,13 @@ def _build_market_study_schema() -> str:
 
 # ─── Individual step implementations (all synchronous) ──────────────────────
 
-def _run_market_sizing_sync(market_name: str, region: str) -> tuple[dict, list[str]]:
+def _run_market_sizing_sync(market_name: str, region: str, scoping_block: str = "") -> tuple[dict, list[str]]:
     """Step 1: Market sizing via Anthropic API with web search."""
     system_prompt = get_prompt_template("market_sizing")
     user_prompt = (
         f"Research the market sizing for: {market_name}\n"
         f"Region focus: {region}\n\n"
+        f"{scoping_block}"
         f"Find TAM, SAM, SOM, CAGR, and historical/projected data points.\n\n"
         f"Return ONLY valid JSON."
     )
@@ -84,12 +116,13 @@ def _run_market_sizing_sync(market_name: str, region: str) -> tuple[dict, list[s
     return result, list(dict.fromkeys(sources + result_sources))
 
 
-def _run_segmentation_sync(market_name: str, region: str) -> tuple[dict, list[str]]:
+def _run_segmentation_sync(market_name: str, region: str, scoping_block: str = "") -> tuple[dict, list[str]]:
     """Step 2: Market segmentation via Anthropic API with web search."""
     system_prompt = get_prompt_template("market_segmentation")
     user_prompt = (
         f"Analyze the market segmentation for: {market_name}\n"
         f"Region focus: {region}\n\n"
+        f"{scoping_block}"
         f"Identify primary segments, their sizes, shares, and growth rates.\n\n"
         f"Return ONLY valid JSON."
     )
@@ -99,12 +132,13 @@ def _run_segmentation_sync(market_name: str, region: str) -> tuple[dict, list[st
     return result, list(dict.fromkeys(sources + result_sources))
 
 
-def _run_competition_sync(market_name: str, region: str) -> tuple[dict, list[str]]:
+def _run_competition_sync(market_name: str, region: str, scoping_block: str = "") -> tuple[dict, list[str]]:
     """Step 3: Competitive landscape via Anthropic API with web search."""
     system_prompt = get_prompt_template("market_competition")
     user_prompt = (
         f"Analyze the competitive landscape for: {market_name}\n"
         f"Region focus: {region}\n\n"
+        f"{scoping_block}"
         f"Identify top 5-7 competitors, market fragmentation, and consolidation trends.\n\n"
         f"Return ONLY valid JSON."
     )
@@ -114,13 +148,14 @@ def _run_competition_sync(market_name: str, region: str) -> tuple[dict, list[str
     return result, list(dict.fromkeys(sources + result_sources))
 
 
-def _run_trends_pestel_sync(market_name: str, region: str) -> tuple[dict, list[str]]:
+def _run_trends_pestel_sync(market_name: str, region: str, scoping_block: str = "") -> tuple[dict, list[str]]:
     """Step 4: Trends & PESTEL via OpenRouter (Gemini)."""
     model = MARKET_RESEARCH_MODELS["trends_pestel"]
     system_prompt = get_prompt_template("market_trends_pestel")
     user_prompt = (
         f"Analyze market trends and perform a PESTEL analysis for: {market_name}\n"
         f"Region focus: {region}\n\n"
+        f"{scoping_block}"
         f"Return ONLY valid JSON."
     )
     raw = _call_openrouter(system_prompt, user_prompt, model)
@@ -129,12 +164,13 @@ def _run_trends_pestel_sync(market_name: str, region: str) -> tuple[dict, list[s
     return result, sources
 
 
-def _run_porters_value_chain_sync(market_name: str, region: str) -> tuple[dict, list[str]]:
+def _run_porters_value_chain_sync(market_name: str, region: str, scoping_block: str = "") -> tuple[dict, list[str]]:
     """Step 5: Porter's Five Forces & Value Chain via Anthropic with web search."""
     system_prompt = get_prompt_template("market_porters")
     user_prompt = (
         f"Perform a Porter's Five Forces analysis and map the value chain for: {market_name}\n"
         f"Region focus: {region}\n\n"
+        f"{scoping_block}"
         f"Return ONLY valid JSON."
     )
     json_text, sources = _call_anthropic_with_search(system_prompt, user_prompt)
@@ -143,12 +179,13 @@ def _run_porters_value_chain_sync(market_name: str, region: str) -> tuple[dict, 
     return result, list(dict.fromkeys(sources + result_sources))
 
 
-def _run_buy_and_build_sync(market_name: str, region: str) -> tuple[dict, list[str]]:
+def _run_buy_and_build_sync(market_name: str, region: str, scoping_block: str = "") -> tuple[dict, list[str]]:
     """Step 6: Buy & Build potential via Anthropic with web search."""
     system_prompt = get_prompt_template("market_buy_and_build")
     user_prompt = (
         f"Assess the buy-and-build potential for: {market_name}\n"
         f"Region focus: {region}\n\n"
+        f"{scoping_block}"
         f"Analyze fragmentation, platform candidates, add-on profiles, "
         f"and consolidation rationale.\n\n"
         f"Return ONLY valid JSON."
@@ -163,6 +200,7 @@ def _run_market_merge_sync(
     market_name: str,
     region: str,
     sub_results: dict[str, dict],
+    scoping_block: str = "",
 ) -> dict:
     """Step 7: Merge all sub-task results into complete MarketStudyData."""
     model = MARKET_RESEARCH_MODELS["merge"]
@@ -181,6 +219,7 @@ def _run_market_merge_sync(
     user_prompt = (
         f"Market: {market_name}\n"
         f"Region: {region}\n\n"
+        f"{scoping_block}"
         f"Merge the following market research sub-task results into a single "
         f"complete MarketStudyData JSON.\n\n"
         + "\n\n".join(parts)
@@ -278,6 +317,7 @@ async def run_market_research(
     job_id: str,
     market_name: str,
     region: str = "DACH",
+    scoping_context: dict | None = None,
 ) -> AsyncGenerator[dict, None]:
     """
     Run the market research pipeline, yielding SSE event dicts.
@@ -285,6 +325,7 @@ async def run_market_research(
     Each event has the shape expected by the frontend DeepResearchProgress:
       {step, status, message, model?, duration?, confidence?, _event_type}
     """
+    scoping_block = _build_scoping_block(scoping_context or {})
     sub_results: dict[str, dict] = {}
 
     # ── Initialise step records ─────────────────────────────────────────
@@ -406,9 +447,9 @@ async def run_market_research(
     # ── Steps 1-3: Parallel (sizing, segmentation, competition) ─────────
 
     batch_1 = [
-        ("market_sizing", _run_market_sizing_sync, (market_name, region)),
-        ("segmentation", _run_segmentation_sync, (market_name, region)),
-        ("competition", _run_competition_sync, (market_name, region)),
+        ("market_sizing", _run_market_sizing_sync, (market_name, region, scoping_block)),
+        ("segmentation", _run_segmentation_sync, (market_name, region, scoping_block)),
+        ("competition", _run_competition_sync, (market_name, region, scoping_block)),
     ]
 
     for sn, _, _ in batch_1:
@@ -432,9 +473,9 @@ async def run_market_research(
     # ── Steps 4-6: Parallel (trends, porters, buy_and_build) ─────────────
 
     batch_2 = [
-        ("trends_pestel", _run_trends_pestel_sync, (market_name, region)),
-        ("porters_value_chain", _run_porters_value_chain_sync, (market_name, region)),
-        ("buy_and_build", _run_buy_and_build_sync, (market_name, region)),
+        ("trends_pestel", _run_trends_pestel_sync, (market_name, region, scoping_block)),
+        ("porters_value_chain", _run_porters_value_chain_sync, (market_name, region, scoping_block)),
+        ("buy_and_build", _run_buy_and_build_sync, (market_name, region, scoping_block)),
     ]
 
     for sn, _, _ in batch_2:
@@ -471,7 +512,7 @@ async def run_market_research(
     t0 = time.monotonic()
     try:
         merged = await asyncio.to_thread(
-            _run_market_merge_sync, market_name, region, sub_results,
+            _run_market_merge_sync, market_name, region, sub_results, scoping_block,
         )
         elapsed = time.monotonic() - t0
         merge_step.result_json = merged

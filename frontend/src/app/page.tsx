@@ -3,9 +3,10 @@
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { researchCompany, listJobs, deleteJob, startMarketResearch } from "@/lib/api";
-import { ResearchResponse, JobSummary } from "@/lib/types";
+import { ResearchResponse, JobSummary, MarketScopingContext, EMPTY_SCOPING } from "@/lib/types";
 import PromptEditor from "./components/PromptEditor";
 import JobCard from "./components/JobCard";
+import MarketScopingForm from "./components/market/MarketScopingForm";
 
 const MAX_FILE_SIZE_MB = 20;
 
@@ -15,6 +16,8 @@ export default function InputPage() {
   const [companyName, setCompanyName] = useState("");
   const [marketName, setMarketName] = useState("");
   const [marketRegion, setMarketRegion] = useState("DACH");
+  const [showScoping, setShowScoping] = useState(false);
+  const [scoping, setScoping] = useState<MarketScopingContext>({ ...EMPTY_SCOPING });
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -101,25 +104,27 @@ export default function InputPage() {
     }
   }
 
-  function handleMarketResearch() {
+  function handleMarketNext() {
     if (!marketName.trim()) {
       setError("Please enter a market/industry name");
       return;
     }
+    setError(null);
+    setShowScoping(true);
+  }
 
+  function handleMarketResearch() {
     setLoading(true);
     setError(null);
 
     startMarketResearch(
       marketName.trim(),
       marketRegion,
+      scoping,
       (jobId) => {
-        // As soon as we get the job ID, redirect to the market editor
         router.push(`/market-editor/${jobId}`);
       },
-      () => {
-        // Progress events — handled by the editor page
-      },
+      () => {},
       () => {
         setLoading(false);
       },
@@ -146,7 +151,7 @@ export default function InputPage() {
       {/* Mode Toggle */}
       <div className="flex bg-gray-100 rounded-xl p-1 mb-6">
         <button
-          onClick={() => { setMode("company"); setError(null); }}
+          onClick={() => { setMode("company"); setError(null); setShowScoping(false); }}
           className={`flex-1 py-2.5 text-sm rounded-lg transition-all flex items-center justify-center gap-2 ${
             mode === "company"
               ? "bg-white text-cc-dark shadow-sm font-semibold"
@@ -190,11 +195,12 @@ export default function InputPage() {
           ) : (
             <>
               <h2 className="text-xl font-semibold text-cc-dark mb-1">
-                New Market Study
+                {showScoping ? "Market Study Scoping" : "New Market Study"}
               </h2>
               <p className="text-sm text-gray-500 leading-relaxed">
-                Enter a market or industry name. AI will research market sizing, competition,
-                trends, PESTEL, Porter&apos;s Five Forces, and buy-and-build potential.
+                {showScoping
+                  ? "Definieren Sie den Analyseumfang, um präzise Ergebnisse auf Consulting-Niveau zu erhalten."
+                  : "Enter a market or industry name. AI will research market sizing, competition, trends, PESTEL, Porter's Five Forces, and buy-and-build potential."}
               </p>
             </>
           )}
@@ -333,6 +339,15 @@ export default function InputPage() {
                 </p>
               )}
             </>
+          ) : showScoping ? (
+            <MarketScopingForm
+              marketName={marketName}
+              scoping={scoping}
+              onChange={setScoping}
+              onSubmit={handleMarketResearch}
+              onBack={() => setShowScoping(false)}
+              loading={loading}
+            />
           ) : (
             <>
               {/* Market Name */}
@@ -348,7 +363,7 @@ export default function InputPage() {
                   type="text"
                   value={marketName}
                   onChange={(e) => setMarketName(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && !loading && handleMarketResearch()}
+                  onKeyDown={(e) => e.key === "Enter" && !loading && handleMarketNext()}
                   placeholder="e.g. Dental-Labore, Schlüsseldienste, SaaS HR-Tech"
                   className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm
                              focus:ring-2 focus:ring-cc-mid/30 focus:border-cc-mid transition-all
@@ -386,9 +401,9 @@ export default function InputPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 <span>
-                  Market studies run an 8-step deep research pipeline: Market Sizing, Segmentation,
-                  Competition, Trends & PESTEL, Porter&apos;s Five Forces, Buy & Build analysis,
-                  with AI cross-verification. Typically takes 3-7 minutes.
+                  Im nächsten Schritt stellen wir Ihnen Scoping-Fragen zu Produkt-Scope,
+                  Zielgruppe, Geografie und strategischem Kontext, um präzise Ergebnisse
+                  auf Consulting-Niveau sicherzustellen.
                 </span>
               </div>
             </>
@@ -404,43 +419,44 @@ export default function InputPage() {
             </div>
           )}
 
-          {/* Action Button */}
-          <button
-            onClick={mode === "company" ? handleResearch : handleMarketResearch}
-            disabled={loading || (mode === "company" ? !companyName.trim() : !marketName.trim())}
-            className="w-full py-2.5 px-6 bg-cc-dark text-white rounded-lg font-medium text-sm
-                       hover:bg-cc-mid transition-colors disabled:opacity-50 disabled:cursor-not-allowed
-                       flex items-center justify-center gap-2"
-          >
-            {loading ? (
-              <>
-                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                </svg>
-                {mode === "market" ? "Starting market research..." : (
-                  researchDepth === "deep" ? "Starting deep research..." : "Researching with AI..."
-                )}
-              </>
-            ) : (
-              <>
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
-                {mode === "company" ? "Research Company" : "Research Market"}
-              </>
-            )}
-          </button>
+          {/* Action Button — only for company mode and market step 1 */}
+          {(mode === "company" || (mode === "market" && !showScoping)) && (
+            <button
+              onClick={mode === "company" ? handleResearch : handleMarketNext}
+              disabled={loading || (mode === "company" ? !companyName.trim() : !marketName.trim())}
+              className="w-full py-2.5 px-6 bg-cc-dark text-white rounded-lg font-medium text-sm
+                         hover:bg-cc-mid transition-colors disabled:opacity-50 disabled:cursor-not-allowed
+                         flex items-center justify-center gap-2"
+            >
+              {loading ? (
+                <>
+                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  {researchDepth === "deep" ? "Starting deep research..." : "Researching with AI..."}
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d={mode === "company"
+                        ? "M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                        : "M13 7l5 5m0 0l-5 5m5-5H6"} />
+                  </svg>
+                  {mode === "company" ? "Research Company" : "Next: Scoping"}
+                </>
+              )}
+            </button>
+          )}
 
-          {loading && (
+          {loading && mode === "company" && (
             <div className="flex items-center gap-3 p-3 bg-cc-surface rounded-lg">
               <div className="w-2 h-2 bg-cc-mid rounded-full animate-pulse" />
               <p className="text-xs text-gray-500">
-                {mode === "market"
-                  ? "Starting 8-step market research pipeline..."
-                  : researchDepth === "deep"
-                    ? "Creating job and preparing deep research pipeline..."
-                    : `AI is researching via web search${file ? " and IM analysis" : ""}. This typically takes 30-60 seconds.`}
+                {researchDepth === "deep"
+                  ? "Creating job and preparing deep research pipeline..."
+                  : `AI is researching via web search${file ? " and IM analysis" : ""}. This typically takes 30-60 seconds.`}
               </p>
             </div>
           )}

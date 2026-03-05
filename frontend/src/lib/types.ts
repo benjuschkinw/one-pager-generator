@@ -186,6 +186,29 @@ export interface DeepResearchSSEEvent {
 // Market Study types
 // ---------------------------------------------------------------------------
 
+/** Scoping context collected before market research starts. */
+export interface MarketScopingContext {
+  product_scope: string;
+  value_chain_focus: string;
+  geographic_detail: string;
+  time_horizon: string;
+  customer_type: string;
+  customer_detail: string;
+  market_metric: string;
+  study_purpose: string;
+}
+
+export const EMPTY_SCOPING: MarketScopingContext = {
+  product_scope: "",
+  value_chain_focus: "entire",
+  geographic_detail: "",
+  time_horizon: "current",
+  customer_type: "b2b",
+  customer_detail: "",
+  market_metric: "value",
+  study_purpose: "market_entry",
+};
+
 export interface MarketStudyMeta {
   market_name: string;
   region: string;

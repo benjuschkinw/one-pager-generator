@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 async def api_start_market_research(
     market_name: str = Form(...),
     region: str = Form("DACH"),
+    scoping_context: str = Form("{}"),
 ):
     """
     Create a market research job and immediately start the pipeline,
@@ -24,9 +25,16 @@ async def api_start_market_research(
 
     - **market_name**: Name of the market/industry to research (e.g. "Dental-Labore")
     - **region**: Geographic focus (default: "DACH")
+    - **scoping_context**: JSON string with scoping answers (product scope, customer, etc.)
     """
     if not market_name.strip():
         raise HTTPException(400, "Market name is required")
+
+    # Parse scoping context
+    try:
+        scoping = json.loads(scoping_context) if scoping_context else {}
+    except json.JSONDecodeError:
+        scoping = {}
 
     # Create a job record
     job = await create_job(
@@ -42,7 +50,9 @@ async def api_start_market_research(
         # First emit the job_id so the frontend can redirect
         yield f"event: job_created\ndata: {json.dumps({'job_id': job_id})}\n\n"
 
-        async for event in run_market_research(job_id, market_name.strip(), region.strip()):
+        async for event in run_market_research(
+            job_id, market_name.strip(), region.strip(), scoping_context=scoping,
+        ):
             event_type = event.pop("_event_type", "progress")
             yield f"event: {event_type}\ndata: {json.dumps(event)}\n\n"
 
