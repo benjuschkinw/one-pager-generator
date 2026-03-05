@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 from models.job import Job, JobSummary
+from models.market_study import MarketStudyData
 from models.one_pager import OnePagerData
 from services.deep_research import run_deep_research
 from services.job_store import (
@@ -18,9 +19,11 @@ from services.job_store import (
     get_job,
     list_jobs,
     save_edited_data,
+    save_edited_market_data,
     save_pptx_path,
     update_job,
 )
+from services.market_pptx_generator import generate_market_study
 from services.pptx_generator import generate_one_pager
 
 router = APIRouter()
@@ -30,6 +33,11 @@ logger = logging.getLogger(__name__)
 class EditDataRequest(BaseModel):
     """Request body for saving edited OnePagerData."""
     data: OnePagerData
+
+
+class EditMarketDataRequest(BaseModel):
+    """Request body for saving edited MarketStudyData."""
+    data: MarketStudyData
 
 
 def _sanitize_filename(name: str) -> str:
@@ -144,6 +152,54 @@ async def api_generate_pptx(job_id: str):
 
     company = _sanitize_filename(job.company_name)
     filename = f"One_Pager_{company}.pptx"
+    return FileResponse(
+        path=pptx_path,
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        filename=filename,
+    )
+
+
+@router.put("/jobs/{job_id}/market-data", response_model=Job)
+async def api_save_edited_market_data(job_id: str, request: EditMarketDataRequest):
+    """Save edited MarketStudyData back to the job."""
+    job = await get_job(job_id)
+    if job is None:
+        raise HTTPException(404, "Job not found")
+
+    updated = await save_edited_market_data(job_id, request.data)
+    if updated is None:
+        raise HTTPException(500, "Failed to save market data")
+    return updated
+
+
+@router.post("/jobs/{job_id}/generate-market")
+async def api_generate_market_pptx(job_id: str):
+    """Generate a 10-slide market study PPTX from job data."""
+    job = await get_job(job_id)
+    if job is None:
+        raise HTTPException(404, "Job not found")
+
+    data = job.edited_market_data or job.market_study_data
+    if data is None:
+        raise HTTPException(400, "No market study data available")
+
+    try:
+        pptx_bytes = generate_market_study(data)
+    except Exception as e:
+        logger.error("Market PPTX generation failed for job %s: %s", job_id, str(e))
+        raise HTTPException(500, "Market study PPTX generation failed.")
+
+    # Save to disk
+    output_dir = os.path.join(OUTPUTS_DIR, job_id)
+    os.makedirs(output_dir, exist_ok=True)
+    pptx_path = os.path.join(output_dir, "market_study.pptx")
+    with open(pptx_path, "wb") as f:
+        f.write(pptx_bytes)
+
+    await save_pptx_path(job_id, pptx_path)
+
+    company = _sanitize_filename(job.company_name)
+    filename = f"Market_Study_{company}.pptx"
     return FileResponse(
         path=pptx_path,
         media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",

@@ -6,6 +6,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from models.market_study import MarketStudyData
 from models.one_pager import FieldFlag, OnePagerData, VerificationResult
 
 
@@ -49,7 +50,7 @@ class Job(BaseModel):
     # Research config
     provider: Optional[str] = None
     model: Optional[str] = None
-    research_mode: Literal["standard", "deep"] = "standard"
+    research_mode: Literal["standard", "deep", "market"] = "standard"
 
     # Outputs
     research_data: Optional[OnePagerData] = None
@@ -57,6 +58,10 @@ class Job(BaseModel):
     deep_research_steps: Optional[list[DeepResearchStep]] = None
     edited_data: Optional[OnePagerData] = None
     pptx_file_path: Optional[str] = None
+
+    # Market study outputs
+    market_study_data: Optional[MarketStudyData] = None
+    edited_market_data: Optional[MarketStudyData] = None
 
 
 class JobSummary(BaseModel):
@@ -67,5 +72,5 @@ class JobSummary(BaseModel):
     updated_at: str
     status: Literal["pending", "researching", "completed", "failed"]
     im_filename: Optional[str] = None
-    research_mode: Literal["standard", "deep"] = "standard"
+    research_mode: Literal["standard", "deep", "market"] = "standard"
     has_pptx: bool = False

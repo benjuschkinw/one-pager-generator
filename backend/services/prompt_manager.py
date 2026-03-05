@@ -740,6 +740,408 @@ Return ONLY valid JSON in this format:
 }"""
 
 # ---------------------------------------------------------------------------
+# Market Research prompts
+# ---------------------------------------------------------------------------
+
+_MARKET_SIZING_PROMPT = """You are a senior strategy consultant specializing in market sizing for the DACH region (Germany, Austria, Switzerland). Your task is to research and quantify a specific market.
+
+## What to Research
+
+1. **Total Addressable Market (TAM)** — Global or European market size in EUR
+2. **Serviceable Addressable Market (SAM)** — DACH-specific market size
+3. **Serviceable Obtainable Market (SOM)** — Realistic obtainable share for a new entrant
+4. **CAGR** — Compound Annual Growth Rate, calculated using: CAGR = (End Value / Start Value)^(1/years) - 1
+5. **Historical data points** — Market size for recent years (2020-2025)
+6. **Projections** — Market size forecasts (2025-2033)
+7. **Methodology** — Top-Down or Bottom-Up, clearly stated
+
+## Output Format
+
+Return ONLY valid JSON:
+{{
+  "market_sizing": {{
+    "tam": "EUR X.Xbn",
+    "tam_year": "2025",
+    "sam": "EUR X.Xm",
+    "sam_year": "2025",
+    "som": "EUR X.Xm",
+    "cagr": 0.068,
+    "cagr_period": "2025-2033",
+    "methodology": "Top-Down",
+    "assumptions": ["Assumption 1", "Assumption 2"],
+    "data_points": [
+      {{"year": "2023", "value": 24.26, "label": "TAM Global"}},
+      {{"year": "2025E", "value": 28.5, "label": "TAM Global"}},
+      {{"year": "2030P", "value": 38.0, "label": "TAM Global"}}
+    ]
+  }},
+  "_sources": ["url1", "url2"],
+  "_confidence": 0.75
+}}
+
+## CRITICAL Rules
+
+1. **NEVER invent market size figures.** If you cannot find credible data, return null and state why.
+2. Prefix estimated values with "~" (e.g., "~EUR 2.5bn").
+3. Include source URLs for every market figure cited.
+4. Prioritize recent data (2024-2026). Reject sources older than 2022.
+5. Search in both German and English for DACH market data.
+6. Clearly distinguish between global, European, and DACH figures.
+7. If multiple sources disagree, report the range and explain the discrepancy.
+8. All monetary values in EUR (convert if source uses USD, using approximate rate).
+9. CAGR as decimal (0.068 = 6.8%).
+
+Return ONLY valid JSON."""
+
+_MARKET_SEGMENTATION_PROMPT = """You are a senior strategy consultant analyzing market segmentation for the DACH region. Your task is to identify and quantify market segments within a specific market.
+
+## What to Research
+
+1. **Primary segments** — By product/service type, customer type, or geography
+2. **Segment sizes** — Revenue or volume per segment
+3. **Segment shares** — Percentage of total market (must sum to ~100%)
+4. **Growth rates** — Per-segment growth outlook
+5. **Key characteristics** — What defines each segment
+
+## Output Format
+
+Return ONLY valid JSON:
+{{
+  "market_segments": [
+    {{
+      "name": "Segment Name",
+      "size": "EUR X.Xm",
+      "share_pct": 35.0,
+      "growth_rate": "5.2% CAGR",
+      "description": "Brief description of this segment"
+    }}
+  ],
+  "_sources": ["url1", "url2"],
+  "_confidence": 0.70
+}}
+
+## CRITICAL Rules
+
+1. **NEVER invent segment data.** If segment breakdown is unavailable, return fewer segments with honest uncertainty.
+2. Segment share_pct values should sum to approximately 100%.
+3. Include source URLs for segment data.
+4. Focus on the DACH region where possible.
+5. Prefix estimated values with "~".
+6. Maximum 6-8 segments. Consolidate smaller segments into "Other" if needed.
+
+Return ONLY valid JSON."""
+
+_MARKET_COMPETITION_PROMPT = """You are a senior strategy consultant analyzing the competitive landscape of a specific market in the DACH region. Your task is to map the competitive landscape comprehensively.
+
+## What to Research
+
+1. **Top 5-7 competitors** — Name, HQ, revenue, market share, key strengths
+2. **Market fragmentation** — Is the market consolidated or fragmented?
+3. **HHI Index** — Herfindahl-Hirschman Index if calculable (sum of squared market shares)
+4. **Consolidation trend** — Is M&A activity increasing? Recent deals?
+5. **Average company revenue** — Typical revenue for companies in this market
+6. **Barriers to entry** — What protects incumbents?
+
+## Output Format
+
+Return ONLY valid JSON:
+{{
+  "competitive_landscape": {{
+    "fragmentation": "high",
+    "top_players": [
+      {{
+        "name": "Company Name",
+        "market_share": "~15%",
+        "revenue": "EUR X.Xm",
+        "hq": "City, Country",
+        "strengths": ["Strength 1", "Strength 2"]
+      }}
+    ],
+    "hhi_index": null,
+    "consolidation_trend": "Description of M&A trend",
+    "avg_company_revenue": "EUR X.Xm"
+  }},
+  "_sources": ["url1", "url2"],
+  "_confidence": 0.70
+}}
+
+## CRITICAL Rules
+
+1. **NEVER invent competitor names or revenue figures.** Only include companies you can verify.
+2. Include source URLs for every competitor data point.
+3. Focus on DACH-relevant competitors.
+4. If market shares are unknown, use "n/a" instead of guessing.
+5. Prefix estimated values with "~".
+6. Fragmentation assessment: "high" = many small players, no dominant leader; "medium" = few large + many small; "low" = 2-3 dominant players.
+
+Return ONLY valid JSON."""
+
+_MARKET_TRENDS_PESTEL_PROMPT = """You are a senior strategy consultant performing a trends analysis and PESTEL assessment for a specific market in the DACH region.
+
+## What to Analyze
+
+### Trends & Drivers
+1. **Growth drivers** — What is accelerating market growth? (3-5 items)
+2. **Headwinds** — What is slowing growth or creating risk? (3-5 items)
+3. **Technological shifts** — Key technology trends impacting the market (2-4 items)
+4. **Regulatory changes** — New/upcoming regulations affecting the market (2-3 items)
+
+### PESTEL Analysis
+For each dimension, provide a rating ("positive", "neutral", "negative") and 2-3 supporting points:
+- **Political** — Government policies, subsidies, trade restrictions
+- **Economic** — GDP growth, inflation, interest rates, labor costs
+- **Social** — Demographics, consumer behavior, workforce trends
+- **Technological** — Innovation, digitization, automation
+- **Environmental** — Sustainability, climate regulation, resource scarcity
+- **Legal** — Industry-specific regulations, compliance requirements, GDPR
+
+## Output Format
+
+Return ONLY valid JSON:
+{{
+  "trends_drivers": {{
+    "growth_drivers": ["Driver 1", "Driver 2", "Driver 3"],
+    "headwinds": ["Headwind 1", "Headwind 2"],
+    "technological_shifts": ["Tech trend 1", "Tech trend 2"],
+    "regulatory_changes": ["Regulation 1", "Regulation 2"]
+  }},
+  "pestel": {{
+    "political": {{"rating": "neutral", "points": ["Point 1", "Point 2"]}},
+    "economic": {{"rating": "negative", "points": ["Point 1", "Point 2"]}},
+    "social": {{"rating": "positive", "points": ["Point 1", "Point 2"]}},
+    "technological": {{"rating": "positive", "points": ["Point 1", "Point 2"]}},
+    "environmental": {{"rating": "neutral", "points": ["Point 1"]}},
+    "legal": {{"rating": "negative", "points": ["Point 1", "Point 2"]}}
+  }},
+  "_sources": ["url1", "url2"],
+  "_confidence": 0.75
+}}
+
+## CRITICAL Rules
+
+1. Focus on DACH-specific context (German regulations, EU directives, Swiss specifics).
+2. Use concrete examples, not generic statements.
+3. Cite specific regulations by name (e.g., "EU AI Act", "GDPR", "Handwerksordnung").
+4. Growth drivers and headwinds should be specific to the market, not generic macroeconomic trends.
+5. Prefix uncertain claims with "~" or qualify with "likely" / "expected".
+
+Return ONLY valid JSON."""
+
+_MARKET_PORTERS_PROMPT = """You are a senior strategy consultant performing a Porter's Five Forces analysis and value chain mapping for a specific market in the DACH region.
+
+## What to Analyze
+
+### Porter's Five Forces
+For each force, provide a rating ("low", "medium", "high") and a concise explanation:
+1. **Competitive rivalry** — Intensity of competition among existing players
+2. **Buyer power** — Bargaining power of customers
+3. **Supplier power** — Bargaining power of suppliers
+4. **Threat of new entrants** — Ease of market entry
+5. **Threat of substitutes** — Risk of alternative solutions
+
+### Value Chain
+1. **Value chain stages** — Key stages from raw material to end customer
+2. **Dominant business models** — Most common business models in this market
+3. **Margin distribution** — Where in the value chain are margins highest?
+
+## Output Format
+
+Return ONLY valid JSON:
+{{
+  "porters_five_forces": {{
+    "rivalry": {{"rating": "high", "explanation": "Many competitors with similar offerings..."}},
+    "buyer_power": {{"rating": "medium", "explanation": "..."}},
+    "supplier_power": {{"rating": "low", "explanation": "..."}},
+    "threat_new_entrants": {{"rating": "medium", "explanation": "..."}},
+    "threat_substitutes": {{"rating": "low", "explanation": "..."}}
+  }},
+  "value_chain": {{
+    "stages": [
+      {{"name": "Stage Name", "description": "What happens here", "typical_margin": "~15-20%"}}
+    ],
+    "dominant_business_models": ["Model 1", "Model 2"],
+    "margin_distribution": "Description of where margins concentrate"
+  }},
+  "_sources": ["url1", "url2"],
+  "_confidence": 0.75
+}}
+
+## CRITICAL Rules
+
+1. Explanations should be DACH-market-specific, not generic textbook definitions.
+2. Each explanation should be 1-3 sentences with concrete evidence.
+3. Value chain stages should be specific to the analyzed market (not generic Porter stages).
+4. Margin data should be sourced or prefixed with "~" if estimated.
+5. Business model descriptions should be concise (3-5 words each).
+
+Return ONLY valid JSON."""
+
+_MARKET_BUY_AND_BUILD_PROMPT = """You are a senior M&A strategy consultant at a private equity fund focused on the DACH region. Your task is to assess the buy-and-build potential of a specific market.
+
+## What to Analyze
+
+1. **Market fragmentation** — How fragmented is the market? (score 0.0-1.0, where 1.0 = extremely fragmented)
+2. **Platform candidates** — What type of companies could serve as platform investments? (3-5 profiles)
+3. **Add-on profile** — What is the ideal add-on acquisition target? (size, geography, capabilities)
+4. **Consolidation rationale** — Why would consolidation create value? (synergies, economies of scale)
+5. **Estimated targets in DACH** — Approximate number of potential acquisition targets
+6. **Recent M&A transactions** — Notable deals in this market
+
+## Output Format
+
+Return ONLY valid JSON:
+{{
+  "buy_and_build": {{
+    "fragmentation_score": 0.85,
+    "platform_candidates": [
+      "Revenue EUR 5-15m, regional leader with 50+ employees",
+      "Digital-first player with proprietary software/technology",
+      "Multi-location operator with standardized processes"
+    ],
+    "add_on_profile": "Revenue EUR 0.5-3m, owner-operated, DACH-based, complementary geography or service line",
+    "consolidation_rationale": "Description of value creation through consolidation",
+    "estimated_targets_dach": "~500-1,000 potential targets in DACH"
+  }},
+  "_sources": ["url1", "url2"],
+  "_confidence": 0.70
+}}
+
+## CRITICAL Rules
+
+1. Fragmentation score: 0.0-0.3 = consolidated, 0.3-0.6 = moderately fragmented, 0.6-1.0 = highly fragmented.
+2. Platform candidates should describe PROFILES, not specific company names (unless publicly known PE targets).
+3. Be specific about DACH market structure — don't generalize from US/UK market data.
+4. Include actual M&A deal examples if available (buyer, target, year, deal size).
+5. Estimated targets should be realistic — prefix with "~" as these are always estimates.
+6. Consolidation rationale should mention specific synergies (procurement, cross-selling, technology).
+
+Return ONLY valid JSON."""
+
+_MARKET_MERGE_PROMPT = """You are a senior strategy consultant. Your task is to merge multiple market research sub-task results into a single, complete MarketStudyData JSON object.
+
+## Input
+
+You will receive partial JSON results from these research steps:
+1. **Market Sizing** — TAM/SAM/SOM, CAGR, data points
+2. **Segmentation** — Market segments with sizes and shares
+3. **Competition** — Competitive landscape, top players
+4. **Trends & PESTEL** — Growth drivers, headwinds, PESTEL analysis
+5. **Porter's & Value Chain** — Five Forces, value chain stages
+6. **Buy & Build** — Fragmentation, platform candidates
+
+## Merge Rules
+
+1. **No data invention** — Only use data from the sub-task results. NEVER add new data points.
+2. **Resolve conflicts** — If two steps disagree (e.g., different market sizes), use the more specific/recent figure and note the discrepancy.
+3. **Complete all sections** — Every field in the output schema must be populated. Use empty strings/arrays for missing data.
+4. **Executive Summary** — Synthesize the key findings from all steps into 3-5 bullet points. Write an Action Title.
+5. **Strategic Implications** — Derive 3 recommendations from the combined analysis. Each must be actionable and specific.
+6. **Cross-check** — Ensure segment shares sum to ~100%, CAGR aligns with data points, competitor data is consistent.
+
+## Output Schema
+
+{{json_schema}}
+
+## CRITICAL Rules
+
+1. The executive_summary.title must be an Action Title (conveys insight, e.g., "Dental-Markt: Konsolidierungswelle schafft PE-Chancen").
+2. strategic_implications.recommendations must have exactly 3 items.
+3. All monetary values in EUR.
+4. Include meta.sources with all unique source URLs from all steps.
+5. Set meta.research_date to today's date.
+
+Return ONLY valid JSON matching the complete MarketStudyData schema."""
+
+_MARKET_VERIFY_PROMPT = """You are a senior strategy consultant performing a final cross-verification of a complete market study.
+
+This data was produced by a multi-step AI research pipeline. Each step was individually verified, but you must now check the MERGED result for:
+
+## Verification Checks
+
+1. **Data consistency**:
+   - Do segment shares sum to ~100%?
+   - Does CAGR align with the historical data points?
+   - Are market sizing figures (TAM > SAM > SOM) logically ordered?
+   - Do competitive landscape figures align with market sizing?
+
+2. **Internal consistency**:
+   - Does the executive summary accurately reflect the detailed sections?
+   - Do strategic recommendations follow from the analysis?
+   - Does the fragmentation assessment match the competitive landscape data?
+   - Do PESTEL factors align with trends analysis?
+
+3. **Plausibility**:
+   - Are market sizes realistic for the DACH region?
+   - Are growth rates (CAGR) plausible for the sector?
+   - Are competitor revenues consistent with market size?
+   - Is the number of estimated targets realistic?
+
+4. **Hallucination indicators**:
+   - Suspiciously precise market figures without credible sources
+   - Made-up competitor names
+   - Generic PESTEL points not specific to the market
+   - Fabricated M&A deal references
+
+For each issue found, provide:
+- field: the JSON field path
+- severity: "error" (clearly wrong), "warning" (suspicious), "info" (minor)
+- message: brief explanation
+
+Also provide:
+- confidence: 0.0 to 1.0 overall confidence
+- verified: true if confidence >= 0.7 and no "error" severity flags
+
+Return ONLY valid JSON:
+{{
+  "confidence": 0.85,
+  "verified": true,
+  "flags": [
+    {{"field": "market_sizing.cagr", "severity": "warning", "message": "..."}}
+  ]
+}}"""
+
+_MARKET_STEP_RECHECK_PROMPT = """You are a senior strategy reviewer. A market research sub-task has produced the following output. Your job is to verify it for accuracy and flag potential issues.
+
+## Your Task
+
+Review the provided market research output and check for:
+
+1. **Hallucinated data**: Are there suspiciously precise market figures without credible sources? Made-up competitor names?
+2. **Implausible claims**: Are market sizes, growth rates, or competitor revenues realistic for the DACH region?
+3. **Internal inconsistencies**: Do segment shares sum correctly? Does CAGR match the data points?
+4. **Source quality**: Are the claimed sources credible market research firms, industry associations, or government statistics?
+5. **DACH specificity**: Is the data actually DACH-specific, or are global figures being passed off as regional?
+
+## Output Format
+
+Return ONLY valid JSON:
+{{
+  "confidence": 0.85,
+  "flags": [
+    {{
+      "field": "market_sizing.tam",
+      "severity": "warning",
+      "message": "TAM figure appears precise but source is a blog post, not a market research firm"
+    }}
+  ],
+  "hallucination_risk": "low",
+  "_reasoning": "Brief explanation of your assessment"
+}}
+
+## Confidence Scale
+- 0.9-1.0: Data appears well-sourced and consistent
+- 0.7-0.89: Minor concerns but generally reliable
+- 0.5-0.69: Significant concerns, some data may be fabricated
+- Below 0.5: High likelihood of hallucinated data
+
+## Hallucination Risk
+- "low": All data appears sourced and plausible
+- "medium": Some data lacks sources or seems overly precise
+- "high": Multiple indicators of fabricated data
+
+Return ONLY valid JSON."""
+
+# ---------------------------------------------------------------------------
 # Prompt registry (singleton)
 # ---------------------------------------------------------------------------
 
@@ -816,6 +1218,52 @@ def _init_defaults():
             name="deep_final_verify",
             description="Enhanced final verification prompt for deep research that also checks inter-step consistency.",
             template=_DEEP_FINAL_VERIFY_PROMPT,
+        ),
+        # Market Research prompts
+        "market_sizing": PromptDefinition(
+            name="market_sizing",
+            description="Market sizing step: TAM/SAM/SOM, CAGR, historical data points, and projections.",
+            template=_MARKET_SIZING_PROMPT,
+        ),
+        "market_segmentation": PromptDefinition(
+            name="market_segmentation",
+            description="Market segmentation step: identify and quantify segments with shares and growth rates.",
+            template=_MARKET_SEGMENTATION_PROMPT,
+        ),
+        "market_competition": PromptDefinition(
+            name="market_competition",
+            description="Competitive landscape step: top players, market shares, fragmentation, consolidation trends.",
+            template=_MARKET_COMPETITION_PROMPT,
+        ),
+        "market_trends_pestel": PromptDefinition(
+            name="market_trends_pestel",
+            description="Trends & PESTEL step: growth drivers, headwinds, tech shifts, regulatory changes, and full PESTEL analysis.",
+            template=_MARKET_TRENDS_PESTEL_PROMPT,
+        ),
+        "market_porters": PromptDefinition(
+            name="market_porters",
+            description="Porter's Five Forces & Value Chain step: competitive forces, value chain stages, business models.",
+            template=_MARKET_PORTERS_PROMPT,
+        ),
+        "market_buy_and_build": PromptDefinition(
+            name="market_buy_and_build",
+            description="Buy & Build potential step: fragmentation score, platform candidates, add-on profile, consolidation rationale.",
+            template=_MARKET_BUY_AND_BUILD_PROMPT,
+        ),
+        "market_merge": PromptDefinition(
+            name="market_merge",
+            description="Merge step for market research: combines all sub-task results into complete MarketStudyData. Placeholder: {json_schema}",
+            template=_MARKET_MERGE_PROMPT,
+        ),
+        "market_verify": PromptDefinition(
+            name="market_verify",
+            description="Final verification for market research: cross-checks consistency, plausibility, and hallucination risk.",
+            template=_MARKET_VERIFY_PROMPT,
+        ),
+        "market_step_recheck": PromptDefinition(
+            name="market_step_recheck",
+            description="Per-step 2nd AI verification for market research: checks data accuracy, source quality, DACH specificity.",
+            template=_MARKET_STEP_RECHECK_PROMPT,
         ),
     }
 

@@ -114,7 +114,7 @@ export interface JobSummary {
   updated_at: string;
   status: "pending" | "researching" | "completed" | "failed";
   im_filename: string | null;
-  research_mode: "standard" | "deep";
+  research_mode: "standard" | "deep" | "market";
   has_pptx: boolean;
 }
 
@@ -148,12 +148,14 @@ export interface Job {
   im_file_path: string | null;
   provider: string | null;
   model: string | null;
-  research_mode: "standard" | "deep";
+  research_mode: "standard" | "deep" | "market";
   research_data: OnePagerData | null;
   verification: VerificationResult | null;
   deep_research_steps: DeepResearchStep[] | null;
   edited_data: OnePagerData | null;
   pptx_file_path: string | null;
+  market_study_data: MarketStudyData | null;
+  edited_market_data: MarketStudyData | null;
 }
 
 export interface PromptDefinition {
@@ -179,6 +181,180 @@ export interface DeepResearchSSEEvent {
   sources?: string[];
   fields_found?: number;
 }
+
+// ---------------------------------------------------------------------------
+// Market Study types
+// ---------------------------------------------------------------------------
+
+export interface MarketStudyMeta {
+  market_name: string;
+  region: string;
+  research_date: string;
+  sources: string[];
+}
+
+export interface ExecutiveSummary {
+  title: string;
+  key_findings: string[];
+  market_verdict: string;
+}
+
+export interface MarketDataPoint {
+  year: string;
+  value: number | null;
+  label: string;
+}
+
+export interface MarketSizing {
+  tam: string;
+  tam_year: string;
+  sam: string;
+  sam_year: string;
+  som: string;
+  cagr: number | null;
+  cagr_period: string;
+  methodology: string;
+  assumptions: string[];
+  data_points: MarketDataPoint[];
+}
+
+export interface MarketSegment {
+  name: string;
+  size: string;
+  share_pct: number | null;
+  growth_rate: string;
+  description: string;
+}
+
+export interface CompetitorProfile {
+  name: string;
+  market_share: string;
+  revenue: string;
+  hq: string;
+  strengths: string[];
+}
+
+export interface CompetitiveLandscape {
+  fragmentation: string;
+  top_players: CompetitorProfile[];
+  hhi_index: number | null;
+  consolidation_trend: string;
+  avg_company_revenue: string;
+}
+
+export interface TrendsDrivers {
+  growth_drivers: string[];
+  headwinds: string[];
+  technological_shifts: string[];
+  regulatory_changes: string[];
+}
+
+export interface PestelFactor {
+  rating: string;
+  points: string[];
+}
+
+export interface PestelAnalysis {
+  political: PestelFactor;
+  economic: PestelFactor;
+  social: PestelFactor;
+  technological: PestelFactor;
+  environmental: PestelFactor;
+  legal: PestelFactor;
+}
+
+export interface ForceAssessment {
+  rating: string;
+  explanation: string;
+}
+
+export interface PortersFiveForces {
+  rivalry: ForceAssessment;
+  buyer_power: ForceAssessment;
+  supplier_power: ForceAssessment;
+  threat_new_entrants: ForceAssessment;
+  threat_substitutes: ForceAssessment;
+}
+
+export interface ValueChainStage {
+  name: string;
+  description: string;
+  typical_margin: string;
+}
+
+export interface ValueChain {
+  stages: ValueChainStage[];
+  dominant_business_models: string[];
+  margin_distribution: string;
+}
+
+export interface BuyAndBuild {
+  fragmentation_score: number | null;
+  platform_candidates: string[];
+  add_on_profile: string;
+  consolidation_rationale: string;
+  estimated_targets_dach: string;
+}
+
+export interface StrategicRecommendation {
+  title: string;
+  description: string;
+  risk_benefit: string;
+}
+
+export interface StrategicImplications {
+  recommendations: StrategicRecommendation[];
+  investment_attractiveness: string;
+  key_risks: string[];
+}
+
+export interface MarketStudyData {
+  meta: MarketStudyMeta;
+  executive_summary: ExecutiveSummary;
+  market_sizing: MarketSizing;
+  market_segments: MarketSegment[];
+  competitive_landscape: CompetitiveLandscape;
+  trends_drivers: TrendsDrivers;
+  pestel: PestelAnalysis;
+  porters_five_forces: PortersFiveForces;
+  value_chain: ValueChain;
+  buy_and_build: BuyAndBuild;
+  strategic_implications: StrategicImplications;
+}
+
+const _EMPTY_PESTEL_FACTOR: PestelFactor = { rating: "neutral", points: [] };
+const _EMPTY_FORCE: ForceAssessment = { rating: "medium", explanation: "" };
+
+export const EMPTY_MARKET_STUDY: MarketStudyData = {
+  meta: { market_name: "", region: "DACH", research_date: "", sources: [] },
+  executive_summary: { title: "", key_findings: [], market_verdict: "" },
+  market_sizing: {
+    tam: "", tam_year: "", sam: "", sam_year: "", som: "",
+    cagr: null, cagr_period: "", methodology: "", assumptions: [], data_points: [],
+  },
+  market_segments: [],
+  competitive_landscape: {
+    fragmentation: "medium", top_players: [], hhi_index: null,
+    consolidation_trend: "", avg_company_revenue: "",
+  },
+  trends_drivers: { growth_drivers: [], headwinds: [], technological_shifts: [], regulatory_changes: [] },
+  pestel: {
+    political: { ..._EMPTY_PESTEL_FACTOR }, economic: { ..._EMPTY_PESTEL_FACTOR },
+    social: { ..._EMPTY_PESTEL_FACTOR }, technological: { ..._EMPTY_PESTEL_FACTOR },
+    environmental: { ..._EMPTY_PESTEL_FACTOR }, legal: { ..._EMPTY_PESTEL_FACTOR },
+  },
+  porters_five_forces: {
+    rivalry: { ..._EMPTY_FORCE }, buyer_power: { ..._EMPTY_FORCE },
+    supplier_power: { ..._EMPTY_FORCE }, threat_new_entrants: { ..._EMPTY_FORCE },
+    threat_substitutes: { ..._EMPTY_FORCE },
+  },
+  value_chain: { stages: [], dominant_business_models: [], margin_distribution: "" },
+  buy_and_build: {
+    fragmentation_score: null, platform_candidates: [], add_on_profile: "",
+    consolidation_rationale: "", estimated_targets_dach: "",
+  },
+  strategic_implications: { recommendations: [], investment_attractiveness: "", key_risks: [] },
+};
 
 export const EMPTY_ONE_PAGER: OnePagerData = {
   meta: { source: "", im_received: "", loi_deadline: "", status: "" },

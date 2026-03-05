@@ -2,7 +2,7 @@
  * API client for the One-Pager Generator backend.
  */
 
-import { OnePagerData, ResearchResponse, PromptDefinition, JobSummary, Job, DeepResearchSSEEvent } from "./types";
+import { OnePagerData, MarketStudyData, ResearchResponse, PromptDefinition, JobSummary, Job, DeepResearchSSEEvent } from "./types";
 
 const API_BASE = "/api";
 
@@ -245,6 +245,139 @@ export function startDeepResearch(
   })();
 
   return controller;
+}
+
+// ---------------------------------------------------------------------------
+// Market Research
+// ---------------------------------------------------------------------------
+
+/**
+ * Start market research. Connects to the SSE endpoint, first receives
+ * a job_created event with the job_id, then streams progress events.
+ */
+export function startMarketResearch(
+  marketName: string,
+  region: string,
+  onJobCreated: (jobId: string) => void,
+  onEvent: (event: string, data: DeepResearchSSEEvent) => void,
+  onComplete: () => void,
+  onError: (error: string) => void,
+): AbortController {
+  const controller = new AbortController();
+
+  (async () => {
+    try {
+      const formData = new FormData();
+      formData.append("market_name", marketName);
+      formData.append("region", region);
+
+      const response = await fetch(`${API_BASE}/market-research`, {
+        method: "POST",
+        body: formData,
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({ detail: response.statusText }));
+        onError(err.detail || "Market research failed");
+        return;
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        onError("No response stream available");
+        return;
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        let currentEvent = "message";
+
+        for (const line of lines) {
+          if (line.startsWith("event: ")) {
+            currentEvent = line.slice(7).trim();
+          } else if (line.startsWith("data: ")) {
+            const dataStr = line.slice(6).trim();
+            if (!dataStr) continue;
+            try {
+              const data = JSON.parse(dataStr);
+
+              if (currentEvent === "job_created" && data.job_id) {
+                onJobCreated(data.job_id);
+              } else if (currentEvent === "complete") {
+                onEvent(currentEvent, data);
+                onComplete();
+              } else if (currentEvent === "error") {
+                onError(data.message || "Market research failed");
+              } else {
+                onEvent(currentEvent, data);
+              }
+            } catch {
+              // Skip malformed JSON
+            }
+            currentEvent = "message";
+          }
+        }
+      }
+
+      onComplete();
+    } catch (err) {
+      if ((err as Error).name === "AbortError") return;
+      onError(err instanceof Error ? err.message : "Market research connection failed");
+    }
+  })();
+
+  return controller;
+}
+
+/**
+ * Save edited MarketStudyData back to the job.
+ */
+export async function saveMarketData(id: string, data: MarketStudyData): Promise<void> {
+  const res = await fetch(`${API_BASE}/jobs/${id}/market-data`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ data }),
+  });
+  if (!res.ok) {
+    throw new Error("Failed to save market data");
+  }
+}
+
+/**
+ * Generate a market study PPTX and trigger download.
+ */
+export async function generateMarketPptx(id: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/jobs/${id}/generate-market`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Market PPTX generation failed");
+  }
+
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+
+  const disposition = res.headers.get("Content-Disposition");
+  const filenameMatch = disposition?.match(/filename="(.+)"/);
+  a.download = filenameMatch?.[1] || "Market_Study.pptx";
+
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 // ---------------------------------------------------------------------------

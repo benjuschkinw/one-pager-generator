@@ -11,6 +11,7 @@ from typing import Any, Optional
 import aiosqlite
 
 from models.job import DeepResearchStep, Job, JobSummary, StepVerification
+from models.market_study import MarketStudyData
 from models.one_pager import OnePagerData, VerificationResult
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,8 @@ _JSON_FIELDS = {
     "verification",
     "deep_research_steps",
     "edited_data",
+    "market_study_data",
+    "edited_market_data",
 }
 
 
@@ -52,6 +55,10 @@ def _row_to_job(row: aiosqlite.Row) -> Job:
         d["deep_research_steps"] = [DeepResearchStep(**s) for s in steps_raw]
     if d.get("edited_data"):
         d["edited_data"] = OnePagerData(**json.loads(d["edited_data"]))
+    if d.get("market_study_data"):
+        d["market_study_data"] = MarketStudyData(**json.loads(d["market_study_data"]))
+    if d.get("edited_market_data"):
+        d["edited_market_data"] = MarketStudyData(**json.loads(d["edited_market_data"]))
 
     return Job(**d)
 
@@ -88,9 +95,17 @@ async def init_db() -> None:
                 verification TEXT,
                 deep_research_steps TEXT,
                 edited_data TEXT,
-                pptx_file_path TEXT
+                pptx_file_path TEXT,
+                market_study_data TEXT,
+                edited_market_data TEXT
             )
         """)
+        # Add columns if upgrading from older schema
+        for col in ("market_study_data", "edited_market_data"):
+            try:
+                await db.execute(f"ALTER TABLE jobs ADD COLUMN {col} TEXT")
+            except Exception:
+                pass  # Column already exists
         await db.commit()
     logger.info("Job database initialized at %s", DB_PATH)
 
@@ -233,3 +248,25 @@ async def save_edited_data(job_id: str, data: OnePagerData) -> Optional[Job]:
 async def save_pptx_path(job_id: str, path: str) -> Optional[Job]:
     """Save the PPTX file path to a job."""
     return await update_job(job_id, pptx_file_path=path)
+
+
+async def save_market_study_data(
+    job_id: str,
+    data: MarketStudyData,
+    verification: Optional[VerificationResult] = None,
+) -> Optional[Job]:
+    """Save market study results to a job."""
+    fields: dict[str, Any] = {
+        "market_study_data": data,
+        "status": "completed",
+    }
+    if verification is not None:
+        fields["verification"] = verification
+    return await update_job(job_id, **fields)
+
+
+async def save_edited_market_data(
+    job_id: str, data: MarketStudyData
+) -> Optional[Job]:
+    """Save user-edited market study data to a job."""
+    return await update_job(job_id, edited_market_data=data)

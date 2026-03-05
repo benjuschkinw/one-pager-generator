@@ -16,6 +16,18 @@ DEEP_RESEARCH_MODELS = {
     "verify_final": env("MODEL_VERIFY", "openai/gpt-4.1"),
 }
 
+# Models for each market research sub-task
+MARKET_RESEARCH_MODELS = {
+    "market_sizing": "anthropic",           # Web search for market size data
+    "segmentation": "anthropic",            # Web search for segment data
+    "competition": "anthropic",             # Web search for competitor data
+    "trends_pestel": env("MODEL_MARKET_TRENDS", "google/gemini-2.5-pro-preview"),
+    "porters_value_chain": "anthropic",     # Web search for industry structure
+    "buy_and_build": "anthropic",           # Web search for fragmentation data
+    "merge": env("MODEL_MARKET_MERGE", "anthropic/claude-opus-4"),
+    "verify_final": env("MODEL_MARKET_VERIFY", "openai/gpt-4.1"),
+}
+
 # Per-step recheck: use different model family than the step itself
 RECHECK_MODELS = {
     "anthropic": "openai/gpt-4.1",
