@@ -12,7 +12,7 @@ interface Props {
 export default function MarketSizingSection({ data, onChange }: Props) {
   return (
     <MarketSectionCard title="Market Sizing" slideNumber={2}>
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div>
           <label className="block text-xs font-medium text-gray-500 mb-1">TAM</label>
           <input type="text" value={data.tam} onChange={(e) => onChange({ ...data, tam: e.target.value })}
@@ -29,7 +29,7 @@ export default function MarketSizingSection({ data, onChange }: Props) {
             placeholder="EUR X.Xm" className="w-full px-2 py-1 border border-gray-200 rounded text-sm focus:ring-1 focus:ring-cc-mid/30" />
         </div>
       </div>
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div>
           <label className="block text-xs font-medium text-gray-500 mb-1">CAGR (%)</label>
           <input type="number" step="0.1"

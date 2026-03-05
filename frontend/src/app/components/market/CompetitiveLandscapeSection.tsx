@@ -21,7 +21,7 @@ export default function CompetitiveLandscapeSection({ data, onChange }: Props) {
 
   return (
     <MarketSectionCard title="Competitive Landscape" slideNumber={4}>
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div>
           <label className="block text-xs font-medium text-gray-500 mb-1">Fragmentation</label>
           <select value={data.fragmentation} onChange={(e) => onChange({ ...data, fragmentation: e.target.value })}
@@ -60,7 +60,7 @@ export default function CompetitiveLandscapeSection({ data, onChange }: Props) {
                   placeholder="Company name" className="flex-1 px-2 py-1 border border-gray-200 rounded text-sm focus:ring-1 focus:ring-cc-mid/30" />
                 <button onClick={() => removePlayer(idx)} aria-label="Remove competitor" className="text-red-400 hover:text-red-600 text-xs">✕</button>
               </div>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 <input type="text" value={p.market_share} onChange={(e) => updatePlayer(idx, { market_share: e.target.value })}
                   placeholder="Market share" className="px-2 py-1 border border-gray-200 rounded text-sm focus:ring-1 focus:ring-cc-mid/30" />
                 <input type="text" value={p.revenue} onChange={(e) => updatePlayer(idx, { revenue: e.target.value })}
@@ -73,7 +73,7 @@ export default function CompetitiveLandscapeSection({ data, onChange }: Props) {
             </div>
           ))}
         </div>
-        <button onClick={addPlayer} className="text-xs text-cc-primary hover:underline mt-1">+ Add competitor</button>
+        <button onClick={addPlayer} className="text-xs text-cc-mid hover:underline mt-1">+ Add competitor</button>
       </div>
     </MarketSectionCard>
   );

@@ -174,7 +174,7 @@ export default function InputPage() {
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
           </svg>
-          Marktstudie
+          Market Study
         </button>
       </div>
 
@@ -195,12 +195,12 @@ export default function InputPage() {
           ) : (
             <>
               <h2 className="text-xl font-semibold text-cc-dark mb-1">
-                {showScoping ? "Marktstudie — Scoping" : "Neue Marktstudie"}
+                {showScoping ? "Market Study — Scoping" : "New Market Study"}
               </h2>
               <p className="text-sm text-gray-500 leading-relaxed">
                 {showScoping
-                  ? "Definieren Sie den Analyseumfang, um präzise Ergebnisse auf Consulting-Niveau zu erhalten."
-                  : "Geben Sie einen Markt oder eine Branche ein. Die KI analysiert Marktgröße, Wettbewerb, Trends, PESTEL, Porter\u2019s Five Forces und Buy-&-Build-Potenzial."}
+                  ? "Define the scope of analysis to get precise, consulting-grade results."
+                  : "Enter a market or industry. AI will analyze market sizing, competition, trends, PESTEL, Porter\u2019s Five Forces and Buy & Build potential."}
               </p>
             </>
           )}
@@ -356,7 +356,7 @@ export default function InputPage() {
                   htmlFor="market"
                   className="block text-sm font-medium text-gray-700 mb-1.5"
                 >
-                  Markt / Branche
+                  Market / Industry
                 </label>
                 <input
                   id="market"
@@ -364,7 +364,7 @@ export default function InputPage() {
                   value={marketName}
                   onChange={(e) => setMarketName(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && !loading && handleMarketNext()}
-                  placeholder="z.B. Dental-Labore, Schlüsseldienste, SaaS HR-Tech"
+                  placeholder="e.g. Dental Labs, Locksmith Services, SaaS HR-Tech"
                   className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm
                              focus:ring-2 focus:ring-cc-mid/30 focus:border-cc-mid transition-all
                              placeholder:text-gray-400"
@@ -378,7 +378,7 @@ export default function InputPage() {
                   htmlFor="region"
                   className="block text-sm font-medium text-gray-700 mb-1.5"
                 >
-                  Region / Geografie
+                  Region / Geography
                 </label>
                 <select
                   id="region"
@@ -401,9 +401,9 @@ export default function InputPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 <span>
-                  Im nächsten Schritt stellen wir Ihnen Scoping-Fragen zu Produkt-Scope,
-                  Zielgruppe, Geografie und strategischem Kontext, um präzise Ergebnisse
-                  auf Consulting-Niveau sicherzustellen.
+                  In the next step, we&apos;ll ask scoping questions about product scope,
+                  target audience, geography, and strategic context to ensure
+                  consulting-grade precision in the results.
                 </span>
               </div>
             </>
@@ -444,7 +444,7 @@ export default function InputPage() {
                         ? "M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
                         : "M13 7l5 5m0 0l-5 5m5-5H6"} />
                   </svg>
-                  {mode === "company" ? "Research Company" : "Weiter: Scoping"}
+                  {mode === "company" ? "Research Company" : "Next: Scoping"}
                 </>
               )}
             </button>

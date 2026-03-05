@@ -28,7 +28,7 @@ export default function SegmentationSection({ segments: data, onChange }: Props)
                 placeholder="Segment name" className="flex-1 px-2 py-1 border border-gray-200 rounded text-sm focus:ring-1 focus:ring-cc-mid/30" />
               <button onClick={() => remove(idx)} aria-label="Remove segment" className="text-red-400 hover:text-red-600 text-xs">✕</button>
             </div>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <input type="text" value={seg.size} onChange={(e) => update(idx, { size: e.target.value })}
                 placeholder="Size (e.g. EUR 1.2bn)" className="px-2 py-1 border border-gray-200 rounded text-sm focus:ring-1 focus:ring-cc-mid/30" />
               <input type="text"
@@ -48,7 +48,7 @@ export default function SegmentationSection({ segments: data, onChange }: Props)
           </div>
         ))}
       </div>
-      <button onClick={add} className="text-xs text-cc-primary hover:underline mt-1">+ Add segment</button>
+      <button onClick={add} className="text-xs text-cc-mid hover:underline mt-1">+ Add segment</button>
     </MarketSectionCard>
   );
 }

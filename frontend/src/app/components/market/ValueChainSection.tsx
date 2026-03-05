@@ -39,7 +39,7 @@ export default function ValueChainSection({ data, onChange }: Props) {
             </div>
           ))}
         </div>
-        <button onClick={addStage} className="text-xs text-cc-primary hover:underline mt-1">+ Add stage</button>
+        <button onClick={addStage} className="text-xs text-cc-mid hover:underline mt-1">+ Add stage</button>
       </div>
 
       <div>

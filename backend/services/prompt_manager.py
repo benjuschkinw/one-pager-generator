@@ -790,6 +790,8 @@ Return ONLY valid JSON:
 7. If multiple sources disagree, report the range and explain the discrepancy.
 8. All monetary values in EUR (convert if source uses USD, using approximate rate).
 9. CAGR as decimal (0.068 = 6.8%).
+10. **Source triangulation**: For each key figure (TAM, SAM, CAGR), try to find at least 2 independent sources. Prefer industry reports (Statista, IBISWorld, Grand View Research) and trade associations over blog posts or press releases.
+11. **Reasoning**: Before outputting JSON, briefly reason through your data quality assessment in the "_reasoning" field.
 
 Return ONLY valid JSON."""
 
@@ -873,6 +875,8 @@ Return ONLY valid JSON:
 4. If market shares are unknown, use "n/a" instead of guessing.
 5. Prefix estimated values with "~".
 6. Fragmentation assessment: "high" = many small players, no dominant leader; "medium" = few large + many small; "low" = 2-3 dominant players.
+7. **Cross-check**: Verify competitor names exist by searching for their websites. Do not include companies you cannot verify.
+8. **Source triangulation**: Cross-reference competitor revenue/market share from multiple sources (Bundesanzeiger, North Data, company websites, industry rankings).
 
 Return ONLY valid JSON."""
 
@@ -980,7 +984,7 @@ _MARKET_BUY_AND_BUILD_PROMPT = """You are a senior M&A strategy consultant at a 
 
 ## What to Analyze
 
-1. **Market fragmentation** — How fragmented is the market? (score 0.0-1.0, where 1.0 = extremely fragmented)
+1. **Market fragmentation** — How fragmented is the market? (score 1-10, where 10 = extremely fragmented)
 2. **Platform candidates** — What type of companies could serve as platform investments? (3-5 profiles)
 3. **Add-on profile** — What is the ideal add-on acquisition target? (size, geography, capabilities)
 4. **Consolidation rationale** — Why would consolidation create value? (synergies, economies of scale)
@@ -992,7 +996,7 @@ _MARKET_BUY_AND_BUILD_PROMPT = """You are a senior M&A strategy consultant at a 
 Return ONLY valid JSON:
 {{
   "buy_and_build": {{
-    "fragmentation_score": 0.85,
+    "fragmentation_score": 8.5,
     "platform_candidates": [
       "Revenue EUR 5-15m, regional leader with 50+ employees",
       "Digital-first player with proprietary software/technology",
@@ -1008,7 +1012,7 @@ Return ONLY valid JSON:
 
 ## CRITICAL Rules
 
-1. Fragmentation score: 0.0-0.3 = consolidated, 0.3-0.6 = moderately fragmented, 0.6-1.0 = highly fragmented.
+1. Fragmentation score: 1-3 = consolidated, 4-6 = moderately fragmented, 7-10 = highly fragmented.
 2. Platform candidates should describe PROFILES, not specific company names (unless publicly known PE targets).
 3. Be specific about DACH market structure — don't generalize from US/UK market data.
 4. Include actual M&A deal examples if available (buyer, target, year, deal size).
@@ -1044,7 +1048,7 @@ You will receive partial JSON results from these research steps:
 
 ## CRITICAL Rules
 
-1. The executive_summary.title must be an Action Title (conveys insight, e.g., "Dental-Markt: Konsolidierungswelle schafft PE-Chancen").
+1. The executive_summary.title must be an Action Title (conveys insight, e.g., "DACH Dental Lab Market: Consolidation Wave Creates PE Opportunity").
 2. strategic_implications.recommendations must have exactly 3 items.
 3. All monetary values in EUR.
 4. Include meta.sources with all unique source URLs from all steps.

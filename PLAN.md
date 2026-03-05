@@ -159,21 +159,21 @@ Alle: Anti-Halluzination, DACH-Fokus, Quellenpflicht, ~Prefix für Schätzungen,
 
 ## 6. Frontend: Marktstudie-Flow
 
-### Startseite (`page.tsx`)
-- Tab-Toggle: **"Company One-Pager"** | **"Marktstudie"**
-- Markt-Modus: Marktname + Region → **"Weiter: Scoping"** → Scoping-Form → **"Analyse starten"**
-- UI-Sprache: Deutsch (DACH-Zielgruppe)
+### Home page (`page.tsx`)
+- Tab toggle: **"Company One-Pager"** | **"Market Study"**
+- Market mode: Market name + Region → **"Next: Scoping"** → Scoping form → **"Start Analysis"**
+- UI language: English (with DACH-specific domain terms preserved)
 
-### Scoping-Form (`MarketScopingForm.tsx`)
-- 4 nummerierte Dimensionen mit Dropdowns + Freitext
-- Back-Button zum Marktname-Schritt
-- Submit startet SSE-Pipeline und leitet zu Editor weiter
+### Scoping Form (`MarketScopingForm.tsx`)
+- 4 numbered dimensions with dropdowns + free text
+- Back button to market name step
+- Submit starts SSE pipeline and redirects to editor
 
 ### Market Editor (`market-editor/[id]/page.tsx`)
-- 10 Section Cards im 2-Spalten-Grid
-- Deep Merge beim Laden (Nested-Defaults werden erhalten)
-- Auto-Save mit 500ms Debounce
-- JSON-Export + PPTX-Generation (Sticky Bottom Bar)
+- 10 Section Cards in 2-column grid (responsive: 1-col on mobile)
+- Deep merge on load (nested defaults preserved)
+- Auto-save with 500ms debounce
+- JSON export + PPTX generation (sticky bottom bar)
 
 ### 10 Section-Editor-Komponenten (`components/market/`)
 - `ExecutiveSummarySection` / `MarketSizingSection` / `SegmentationSection`
@@ -186,31 +186,35 @@ Alle: Anti-Halluzination, DACH-Fokus, Quellenpflicht, ~Prefix für Schätzungen,
 
 ## 7. QA / UX / Security (Review-Ergebnisse)
 
-### Behobene Issues:
+### Fixed Issues:
 
-| Bereich | Issue | Fix |
-|---------|-------|-----|
-| **QA** | Double `onComplete` in SSE handler | Completion-Flag verhindert doppelten Aufruf |
-| **QA** | Shallow Merge verliert Nested-Defaults | Deep Merge für alle Objekt-Felder |
-| **QA** | CAGR-Input reformatiert bei jedem Keystroke | `type="number"` mit Label "(%)"|
-| **QA** | `fragmentation_score` 0-1 vs 1-10 Mismatch | Einheitlich 1-10, PPTX zeigt "X/10" |
-| **UX** | Gemischte Sprachen DE/EN | Marktstudie-UI durchgängig auf Deutsch |
-| **UX** | Fehlende aria-labels auf Icon-Buttons | Alle Icon-Buttons haben `aria-label` |
-| **Security** | Keine Input-Validierung (Länge, Region) | Max-Lengths, Region-Allowlist |
-| **Security** | Prompt Injection via Scoping | Key-Whitelist, Längen-Cap, Markdown-Filter |
-| **Security** | Kein Scoping-Sanitizing | `_sanitize_scoping()` mit Whitelist + Truncation |
+| Area | Issue | Fix |
+|------|-------|-----|
+| **QA** | Double `onComplete` in SSE handler | Completion flag prevents double callback |
+| **QA** | Shallow merge loses nested defaults | Deep merge for all object fields |
+| **QA** | CAGR input reformats on every keystroke | `type="number"` with label "(%)"|
+| **QA** | `fragmentation_score` 0-1 vs 1-10 mismatch | Unified to 1-10 scale, PPTX shows "X/10" |
+| **UX** | Undefined `cc-primary` Tailwind token | Replaced with `cc-mid` across all components |
+| **UX** | No responsive breakpoints on grids | Added `sm:grid-cols-*` for mobile support |
+| **UX** | Missing aria-labels on icon buttons | All icon buttons have `aria-label` |
+| **Prompts** | Fragmentation score scale mismatch in prompt | Updated buy_and_build prompt to 1-10 scale |
+| **Prompts** | No source triangulation guidance | Added triangulation rules for key figures |
+| **Prompts** | German example in merge prompt | Switched to English action title example |
+| **Security** | No input validation (length, region) | Max-lengths, region allowlist |
+| **Security** | Prompt injection via scoping | Key whitelist, length cap, markdown filter |
+| **Security** | No scoping sanitization | `_sanitize_scoping()` with whitelist + truncation |
 
 ---
 
-## Abgrenzung
+## Comparison
 
-| | Company One-Pager | Marktstudie |
+| | Company One-Pager | Market Study |
 |---|---|---|
-| **Input** | Firmenname + optional IM PDF | Marktname + Region + Scoping |
-| **Output-Schema** | `OnePagerData` | `MarketStudyData` |
-| **Pipeline** | 7 Steps (firmenbezogen) | 8 Steps (marktbezogen) |
-| **PPTX** | 1 Folie (One-Pager) | 10 Folien (Marktstudie) |
-| **Zielgruppe** | Investment Committee | Strategy / Deal-Screening |
+| **Input** | Company name + optional IM PDF | Market name + Region + Scoping |
+| **Output Schema** | `OnePagerData` | `MarketStudyData` |
+| **Pipeline** | 7 steps (company-focused) | 8 steps (market-focused) |
+| **PPTX** | 1 slide (One-Pager) | 10 slides (Market Study) |
+| **Audience** | Investment Committee | Strategy / Deal Screening |
 | **research_mode** | `"standard"` / `"deep"` | `"market"` |
 
-**Shared:** Jobs, SSE-Streaming, Anti-Halluzination, Prompt-Editor, Job-History, Model-Config.
+**Shared:** Jobs, SSE streaming, anti-hallucination, prompt editor, job history, model config.

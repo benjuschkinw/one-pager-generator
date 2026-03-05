@@ -39,7 +39,7 @@ function PestelDimension({ label, factor, onChange }: { label: string; factor: P
 export default function PestelSection({ data, onChange }: Props) {
   return (
     <MarketSectionCard title="PESTEL Analysis" slideNumber={6}>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {DIMENSIONS.map(({ key, label }) => (
           <PestelDimension key={key} label={label} factor={data[key]}
             onChange={(f) => onChange({ ...data, [key]: f })} />

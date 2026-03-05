@@ -12,7 +12,7 @@ interface Props {
 export default function BuyAndBuildSection({ data, onChange }: Props) {
   return (
     <MarketSectionCard title="Buy & Build" slideNumber={9}>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
           <label className="block text-xs font-medium text-gray-500 mb-1">Fragmentation Score</label>
           <input type="text"

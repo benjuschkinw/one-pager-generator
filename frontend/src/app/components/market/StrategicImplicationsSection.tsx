@@ -49,7 +49,7 @@ export default function StrategicImplicationsSection({ data, onChange }: Props) 
             </div>
           ))}
         </div>
-        <button onClick={addRec} className="text-xs text-cc-primary hover:underline mt-1">+ Add recommendation</button>
+        <button onClick={addRec} className="text-xs text-cc-mid hover:underline mt-1">+ Add recommendation</button>
       </div>
     </MarketSectionCard>
   );
