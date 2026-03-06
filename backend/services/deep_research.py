@@ -3,21 +3,25 @@ Deep Research Pipeline: multi-step AI research with SSE streaming.
 
 Runs a 7-step pipeline:
   1. im_extraction  - Extract structured data from IM PDF text (skipped if no IM)
-  2. web_research   - Web research via Anthropic API (Claude with web search)
+  2. web_research   - Web research via Google/Anthropic API (with web search)
   3. financials     - Financial deep-dive via Anthropic API (web search)
-  4. management     - Management & org research via Anthropic API (web search)
-  5. market         - Market & competitive via OpenRouter (Gemini 2.5 Pro)
-  6. merge          - Merge & synthesize all step results into final OnePagerData
-  7. verify_final   - Cross-verify merged output with GPT-4.1
+  4. management     - Management & org research via Google API (web search)
+  5. market         - Market & competitive via OpenRouter (GPT-5.2)
+  6. merge          - Merge & synthesize all step results (GPT-5.2)
+  7. verify_final   - Cross-verify merged output (GPT-5.2)
 
 Steps 2-5 run in parallel.  Each step (1-5) gets rechecked by a 2nd AI from
 a different model family.  The function is an async generator that yields SSE
 event dicts for the frontend DeepResearchProgress component.
+
+Provider routing: model_id "google" → Google native API with Search grounding,
+"anthropic" → Anthropic API with web search, anything else → OpenRouter.
 """
 
 import asyncio
 import json
 import logging
+import os
 import time
 from datetime import datetime
 from typing import AsyncGenerator, Optional
@@ -36,6 +40,7 @@ from services.ai_research import (
     _sanitize_company_name,
     ANTHROPIC_API_KEY,
     OPENROUTER_API_KEY,
+    GOOGLE_API_KEY,
     ALLOWED_DOMAINS,
 )
 from services.job_store import get_job, update_job, save_research_data
@@ -54,8 +59,10 @@ STEP_LABELS = {
     "verify_final": "Final Verification",
 }
 
-# Which steps use which calling convention
-_ANTHROPIC_SEARCH_STEPS = {"web_research", "financials", "management"}
+# Steps are now routed by their model_id in config:
+# "google" → _call_google_with_search (Google native API + Search grounding)
+# "anthropic" → _call_anthropic_with_search (Anthropic API + web search)
+# anything else → _call_openrouter (OpenRouter, no search)
 
 
 # ─── Helpers ────────────────────────────────────────────────────────────────
@@ -158,6 +165,62 @@ def _parse_partial_json(text: str) -> dict:
 
 # ─── Synchronous AI call functions (wrapped via asyncio.to_thread) ──────────
 
+def _call_google_with_search(
+    system_prompt: str,
+    user_prompt: str,
+) -> tuple[str, list[str]]:
+    """
+    Call Google Gemini API with Google Search grounding.
+    Returns (response_json_text, source_urls).
+    Synchronous -- call via asyncio.to_thread.
+    """
+    if not GOOGLE_API_KEY:
+        raise ValueError("GOOGLE_API_KEY not set.")
+
+    from google import genai
+    from google.genai import types
+
+    client = genai.Client(api_key=GOOGLE_API_KEY)
+    model = "gemini-2.5-pro"
+
+    logger.info("Google Search call: model=%s", model)
+    response = client.models.generate_content(
+        model=model,
+        contents=user_prompt,
+        config=types.GenerateContentConfig(
+            system_instruction=system_prompt,
+            tools=[types.Tool(google_search=types.GoogleSearch())],
+            max_output_tokens=16000,
+            temperature=0.2,
+        ),
+    )
+
+    # Extract text from all parts (thinking models have thought_signature parts)
+    text_parts = []
+    sources = []
+    if response.candidates and response.candidates[0].content:
+        for part in response.candidates[0].content.parts:
+            if hasattr(part, "text") and part.text:
+                text_parts.append(part.text)
+    raw_text = "\n".join(text_parts)
+
+    # Extract grounding sources if available
+    candidate = response.candidates[0] if response.candidates else None
+    if candidate and hasattr(candidate, "grounding_metadata") and candidate.grounding_metadata:
+        gm = candidate.grounding_metadata
+        if hasattr(gm, "grounding_chunks") and gm.grounding_chunks:
+            for chunk in gm.grounding_chunks:
+                if hasattr(chunk, "web") and chunk.web:
+                    url = getattr(chunk.web, "uri", "")
+                    if url and url not in sources:
+                        sources.append(url)
+
+    logger.info("Google response: length=%d chars, sources=%d", len(raw_text), len(sources))
+
+    json_text = _extract_json_from_text(raw_text)
+    return json_text, sources
+
+
 def _call_anthropic_with_search(
     system_prompt: str,
     user_prompt: str,
@@ -172,7 +235,7 @@ def _call_anthropic_with_search(
         raise ValueError("ANTHROPIC_API_KEY not set.")
 
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-    model = "claude-opus-4-20250514"
+    model = "claude-sonnet-4-20250514"
 
     messages = [{"role": "user", "content": user_prompt}]
     web_search_tool = _build_web_search_tool()
@@ -258,10 +321,33 @@ def _call_openrouter(
     return response.choices[0].message.content or ""
 
 
+# ─── Generic dispatcher ────────────────────────────────────────────────────
+
+def _call_by_model(
+    model_id: str,
+    system_prompt: str,
+    user_prompt: str,
+) -> tuple[str, list[str]]:
+    """
+    Route a call to the right provider based on model_id.
+    Returns (json_text, source_urls).
+    - "google" → Google Gemini API with Search grounding
+    - "anthropic" → Anthropic API with web search
+    - anything else → OpenRouter (no web search)
+    """
+    if model_id == "google":
+        return _call_google_with_search(system_prompt, user_prompt)
+    elif model_id == "anthropic":
+        return _call_anthropic_with_search(system_prompt, user_prompt)
+    else:
+        raw = _call_openrouter(system_prompt, user_prompt, model_id)
+        return raw, []
+
+
 # ─── Individual step implementations (all synchronous) ──────────────────────
 
 def _run_im_extraction_sync(company_name: str, im_text: str) -> tuple[dict, list[str]]:
-    """Step 1: Extract structured data from IM document via OpenRouter."""
+    """Step 1: Extract structured data from IM document."""
     model = DEEP_RESEARCH_MODELS["im_extraction"]
     system_prompt = get_prompt_template("deep_im_extraction")
     json_schema = _build_json_schema()
@@ -275,65 +361,68 @@ def _run_im_extraction_sync(company_name: str, im_text: str) -> tuple[dict, list
         f"Return ONLY valid JSON."
     )
 
-    raw = _call_openrouter(system_prompt, user_prompt, model)
-    result = _parse_partial_json(raw)
-    sources = result.pop("_sources", [])
-    return result, sources
+    json_text, sources = _call_by_model(model, system_prompt, user_prompt)
+    result = _parse_partial_json(json_text)
+    result_sources = result.pop("_sources", [])
+    return result, list(dict.fromkeys(sources + result_sources))
 
 
 def _run_web_research_sync(company_name: str) -> tuple[dict, list[str]]:
-    """Step 2: Web research for company basics via Anthropic API with web search."""
+    """Step 2: Web research for company basics."""
+    model = DEEP_RESEARCH_MODELS["web_research"]
     system_prompt = get_prompt_template("deep_web_research")
     user_prompt = (
         f"Research basic company information for: {company_name}\n\n"
         f"Return ONLY valid JSON."
     )
-    json_text, sources = _call_anthropic_with_search(system_prompt, user_prompt)
+    json_text, sources = _call_by_model(model, system_prompt, user_prompt)
     result = _parse_partial_json(json_text)
     result_sources = result.pop("_sources", [])
     return result, list(dict.fromkeys(sources + result_sources))
 
 
 def _run_financials_sync(company_name: str) -> tuple[dict, list[str]]:
-    """Step 3: Financial deep-dive via Anthropic API with web search."""
+    """Step 3: Financial deep-dive."""
+    model = DEEP_RESEARCH_MODELS["financials"]
     system_prompt = get_prompt_template("deep_financials")
     user_prompt = (
         f"Research financial data for: {company_name}\n\n"
         f"Search Bundesanzeiger, North Data, Unternehmensregister, "
         f"and the company website.\n\nReturn ONLY valid JSON."
     )
-    json_text, sources = _call_anthropic_with_search(system_prompt, user_prompt)
+    json_text, sources = _call_by_model(model, system_prompt, user_prompt)
     result = _parse_partial_json(json_text)
     result_sources = result.pop("_sources", [])
     return result, list(dict.fromkeys(sources + result_sources))
 
 
 def _run_management_sync(company_name: str) -> tuple[dict, list[str]]:
-    """Step 4: Management & org research via Anthropic API with web search."""
+    """Step 4: Management & org research."""
+    model = DEEP_RESEARCH_MODELS["management"]
     system_prompt = get_prompt_template("deep_management")
     user_prompt = (
         f"Research the management team and organizational structure for: "
         f"{company_name}\n\nSearch LinkedIn, Handelsregister, North Data, "
         f"and the company website.\n\nReturn ONLY valid JSON."
     )
-    json_text, sources = _call_anthropic_with_search(system_prompt, user_prompt)
+    json_text, sources = _call_by_model(model, system_prompt, user_prompt)
     result = _parse_partial_json(json_text)
     result_sources = result.pop("_sources", [])
     return result, list(dict.fromkeys(sources + result_sources))
 
 
 def _run_market_sync(company_name: str) -> tuple[dict, list[str]]:
-    """Step 5: Market & competitive analysis via OpenRouter."""
+    """Step 5: Market & competitive analysis."""
     model = DEEP_RESEARCH_MODELS["market"]
     system_prompt = get_prompt_template("deep_market")
     user_prompt = (
         f"Analyze the market landscape and competitive positioning for: "
         f"{company_name}\n\nFocus on the DACH region.\n\nReturn ONLY valid JSON."
     )
-    raw = _call_openrouter(system_prompt, user_prompt, model)
-    result = _parse_partial_json(raw)
-    sources = result.pop("_sources", [])
-    return result, sources
+    json_text, sources = _call_by_model(model, system_prompt, user_prompt)
+    result = _parse_partial_json(json_text)
+    result_sources = result.pop("_sources", [])
+    return result, list(dict.fromkeys(sources + result_sources))
 
 
 def _run_merge_sync(
@@ -363,8 +452,8 @@ def _run_merge_sync(
         + "\n\nReturn ONLY valid JSON matching the complete OnePagerData schema."
     )
 
-    raw = _call_openrouter(system_prompt, user_prompt, model)
-    return _parse_partial_json(raw)
+    json_text, _ = _call_by_model(model, system_prompt, user_prompt)
+    return _parse_partial_json(json_text)
 
 
 def _run_verify_final_sync(merged_data: dict) -> dict:
@@ -376,8 +465,8 @@ def _run_verify_final_sync(merged_data: dict) -> dict:
         f"```json\n{json.dumps(merged_data, indent=2, default=str)}\n```"
     )
 
-    raw = _call_openrouter(system_prompt, user_prompt, model)
-    result = _parse_partial_json(raw)
+    json_text, _ = _call_by_model(model, system_prompt, user_prompt)
+    result = _parse_partial_json(json_text)
     # Ensure required fields
     result.setdefault("confidence", 0.5)
     result.setdefault("verified", False)
@@ -482,9 +571,12 @@ async def run_deep_research(
     ]
     for sn in step_order:
         model_cfg = DEEP_RESEARCH_MODELS.get(sn, "unknown")
-        display_model = (
-            "claude-opus-4 (Anthropic API)" if model_cfg == "anthropic" else model_cfg
-        )
+        if model_cfg == "anthropic":
+            display_model = "claude-sonnet-4 (Anthropic API)"
+        elif model_cfg == "google":
+            display_model = "gemini-2.5-pro (Google API)"
+        else:
+            display_model = model_cfg
         all_steps.append(DeepResearchStep(
             step_name=sn,
             label=STEP_LABELS[sn],

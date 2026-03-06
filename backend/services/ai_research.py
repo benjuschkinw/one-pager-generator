@@ -474,23 +474,49 @@ Return ONLY the JSON, no commentary."""
         json_text = _extract_json_from_response(response)
         corrected = _parse_response_json(json_text, company_name)
 
-        # Log what changed
+        # Merge corrections conservatively: only accept changes where the
+        # corrected version has data.  Never let cross-check blank a field.
         changes = []
-        if corrected.key_facts.website != data.key_facts.website:
-            changes.append(f"website: {data.key_facts.website} -> {corrected.key_facts.website}")
-        if corrected.key_facts.founded != data.key_facts.founded:
-            changes.append(f"founded: {data.key_facts.founded} -> {corrected.key_facts.founded}")
-        if corrected.key_facts.management != data.key_facts.management:
-            changes.append(f"management changed")
-        if corrected.header.tagline != data.header.tagline:
+
+        # Header fields
+        if corrected.header.tagline and corrected.header.tagline != data.header.tagline:
             changes.append(f"tagline changed")
+            data.header.tagline = corrected.header.tagline
+
+        # Key facts
+        kf_orig = data.key_facts
+        kf_new = corrected.key_facts
+
+        if kf_new.website and kf_new.website != kf_orig.website:
+            changes.append(f"website: {kf_orig.website} -> {kf_new.website}")
+            kf_orig.website = kf_new.website
+        if kf_new.founded and kf_new.founded != kf_orig.founded:
+            changes.append(f"founded: {kf_orig.founded} -> {kf_new.founded}")
+            kf_orig.founded = kf_new.founded
+        if kf_new.hq and kf_new.hq != kf_orig.hq:
+            changes.append(f"hq: {kf_orig.hq} -> {kf_new.hq}")
+            kf_orig.hq = kf_new.hq
+        if kf_new.management and kf_new.management != kf_orig.management:
+            changes.append(f"management changed")
+            kf_orig.management = kf_new.management
+        if kf_new.industry and kf_new.industry != kf_orig.industry:
+            changes.append(f"industry: {kf_orig.industry} -> {kf_new.industry}")
+            kf_orig.industry = kf_new.industry
+        if kf_new.niche and kf_new.niche != kf_orig.niche:
+            changes.append(f"niche: {kf_orig.niche} -> {kf_new.niche}")
+            kf_orig.niche = kf_new.niche
+
+        # Description (list of strings)
+        if corrected.description and corrected.description != data.description:
+            changes.append("description changed")
+            data.description = corrected.description
 
         if changes:
             logger.info("Website cross-check corrected %d fields: %s", len(changes), "; ".join(changes))
         else:
             logger.info("Website cross-check found no corrections needed")
 
-        return corrected
+        return data
 
     except Exception as e:
         logger.error("Website cross-check failed: %s", str(e))

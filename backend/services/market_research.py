@@ -29,6 +29,7 @@ from models.one_pager import FieldFlag, VerificationResult
 from services.deep_research import (
     _build_web_search_tool,
     _call_anthropic_with_search,
+    _call_by_model,
     _call_openrouter,
     _collect_sources_from_anthropic,
     _extract_json_from_anthropic_response,
@@ -49,7 +50,7 @@ MARKET_STEP_LABELS = {
     "segmentation": "Market Segmentation",
     "competition": "Competitive Landscape",
     "trends_pestel": "Trends & PESTEL",
-    "porters_value_chain": "Porter's & Value Chain",
+    "porters_value_chain": "Sourcing, Multiples & Porter's",
     "buy_and_build": "Buy & Build Potential",
     "merge": "Merge & Synthesize",
     "verify_final": "Final Verification",
@@ -101,7 +102,8 @@ def _build_market_study_schema() -> str:
 # ─── Individual step implementations (all synchronous) ──────────────────────
 
 def _run_market_sizing_sync(market_name: str, region: str, scoping_block: str = "") -> tuple[dict, list[str]]:
-    """Step 1: Market sizing via Anthropic API with web search."""
+    """Step 1: Market sizing."""
+    model = MARKET_RESEARCH_MODELS["market_sizing"]
     system_prompt = get_prompt_template("market_sizing")
     user_prompt = (
         f"Research the market sizing for: {market_name}\n"
@@ -110,14 +112,15 @@ def _run_market_sizing_sync(market_name: str, region: str, scoping_block: str = 
         f"Find TAM, SAM, SOM, CAGR, and historical/projected data points.\n\n"
         f"Return ONLY valid JSON."
     )
-    json_text, sources = _call_anthropic_with_search(system_prompt, user_prompt)
+    json_text, sources = _call_by_model(model, system_prompt, user_prompt)
     result = _parse_partial_json(json_text)
     result_sources = result.pop("_sources", [])
     return result, list(dict.fromkeys(sources + result_sources))
 
 
 def _run_segmentation_sync(market_name: str, region: str, scoping_block: str = "") -> tuple[dict, list[str]]:
-    """Step 2: Market segmentation via Anthropic API with web search."""
+    """Step 2: Market segmentation."""
+    model = MARKET_RESEARCH_MODELS["segmentation"]
     system_prompt = get_prompt_template("market_segmentation")
     user_prompt = (
         f"Analyze the market segmentation for: {market_name}\n"
@@ -126,14 +129,15 @@ def _run_segmentation_sync(market_name: str, region: str, scoping_block: str = "
         f"Identify primary segments, their sizes, shares, and growth rates.\n\n"
         f"Return ONLY valid JSON."
     )
-    json_text, sources = _call_anthropic_with_search(system_prompt, user_prompt)
+    json_text, sources = _call_by_model(model, system_prompt, user_prompt)
     result = _parse_partial_json(json_text)
     result_sources = result.pop("_sources", [])
     return result, list(dict.fromkeys(sources + result_sources))
 
 
 def _run_competition_sync(market_name: str, region: str, scoping_block: str = "") -> tuple[dict, list[str]]:
-    """Step 3: Competitive landscape via Anthropic API with web search."""
+    """Step 3: Competitive landscape."""
+    model = MARKET_RESEARCH_MODELS["competition"]
     system_prompt = get_prompt_template("market_competition")
     user_prompt = (
         f"Analyze the competitive landscape for: {market_name}\n"
@@ -142,14 +146,14 @@ def _run_competition_sync(market_name: str, region: str, scoping_block: str = ""
         f"Identify top 5-7 competitors, market fragmentation, and consolidation trends.\n\n"
         f"Return ONLY valid JSON."
     )
-    json_text, sources = _call_anthropic_with_search(system_prompt, user_prompt)
+    json_text, sources = _call_by_model(model, system_prompt, user_prompt)
     result = _parse_partial_json(json_text)
     result_sources = result.pop("_sources", [])
     return result, list(dict.fromkeys(sources + result_sources))
 
 
 def _run_trends_pestel_sync(market_name: str, region: str, scoping_block: str = "") -> tuple[dict, list[str]]:
-    """Step 4: Trends & PESTEL via OpenRouter (Gemini)."""
+    """Step 4: Trends & PESTEL."""
     model = MARKET_RESEARCH_MODELS["trends_pestel"]
     system_prompt = get_prompt_template("market_trends_pestel")
     user_prompt = (
@@ -158,29 +162,32 @@ def _run_trends_pestel_sync(market_name: str, region: str, scoping_block: str = 
         f"{scoping_block}"
         f"Return ONLY valid JSON."
     )
-    raw = _call_openrouter(system_prompt, user_prompt, model)
-    result = _parse_partial_json(raw)
-    sources = result.pop("_sources", [])
-    return result, sources
+    json_text, sources = _call_by_model(model, system_prompt, user_prompt)
+    result = _parse_partial_json(json_text)
+    result_sources = result.pop("_sources", [])
+    return result, list(dict.fromkeys(sources + result_sources))
 
 
 def _run_porters_value_chain_sync(market_name: str, region: str, scoping_block: str = "") -> tuple[dict, list[str]]:
-    """Step 5: Porter's Five Forces & Value Chain via Anthropic with web search."""
+    """Step 5: Sourcing dynamics, multiples, Porter's & Value Chain."""
+    model = MARKET_RESEARCH_MODELS["porters_value_chain"]
     system_prompt = get_prompt_template("market_porters")
     user_prompt = (
-        f"Perform a Porter's Five Forces analysis and map the value chain for: {market_name}\n"
+        f"Research PE deal multiples, EBITDA benchmarks, trading comps, sourcing dynamics, "
+        f"coverage notes, Porter's Five Forces, and value chain for: {market_name}\n"
         f"Region focus: {region}\n\n"
         f"{scoping_block}"
         f"Return ONLY valid JSON."
     )
-    json_text, sources = _call_anthropic_with_search(system_prompt, user_prompt)
+    json_text, sources = _call_by_model(model, system_prompt, user_prompt)
     result = _parse_partial_json(json_text)
     result_sources = result.pop("_sources", [])
     return result, list(dict.fromkeys(sources + result_sources))
 
 
 def _run_buy_and_build_sync(market_name: str, region: str, scoping_block: str = "") -> tuple[dict, list[str]]:
-    """Step 6: Buy & Build potential via Anthropic with web search."""
+    """Step 6: Buy & Build potential."""
+    model = MARKET_RESEARCH_MODELS["buy_and_build"]
     system_prompt = get_prompt_template("market_buy_and_build")
     user_prompt = (
         f"Assess the buy-and-build potential for: {market_name}\n"
@@ -190,7 +197,7 @@ def _run_buy_and_build_sync(market_name: str, region: str, scoping_block: str = 
         f"and consolidation rationale.\n\n"
         f"Return ONLY valid JSON."
     )
-    json_text, sources = _call_anthropic_with_search(system_prompt, user_prompt)
+    json_text, sources = _call_by_model(model, system_prompt, user_prompt)
     result = _parse_partial_json(json_text)
     result_sources = result.pop("_sources", [])
     return result, list(dict.fromkeys(sources + result_sources))
@@ -226,8 +233,8 @@ def _run_market_merge_sync(
         + "\n\nReturn ONLY valid JSON matching the complete MarketStudyData schema."
     )
 
-    raw = _call_openrouter(system_prompt, user_prompt, model)
-    return _parse_partial_json(raw)
+    json_text, _ = _call_by_model(model, system_prompt, user_prompt)
+    return _parse_partial_json(json_text)
 
 
 def _run_market_verify_final_sync(merged_data: dict) -> dict:
@@ -239,8 +246,8 @@ def _run_market_verify_final_sync(merged_data: dict) -> dict:
         f"```json\n{json.dumps(merged_data, indent=2, default=str)}\n```"
     )
 
-    raw = _call_openrouter(system_prompt, user_prompt, model)
-    result = _parse_partial_json(raw)
+    json_text, _ = _call_by_model(model, system_prompt, user_prompt)
+    result = _parse_partial_json(json_text)
     result.setdefault("confidence", 0.5)
     result.setdefault("verified", False)
     result.setdefault("flags", [])
@@ -249,11 +256,7 @@ def _run_market_verify_final_sync(merged_data: dict) -> dict:
 
 def _run_market_step_recheck_sync(step_name: str, step_output: dict) -> dict:
     """Run per-step recheck with a model from a different family."""
-    import anthropic as anthropic_lib
-
-    from services.ai_research import ANTHROPIC_API_KEY
-
-    step_model = MARKET_RESEARCH_MODELS.get(step_name, "anthropic")
+    step_model = MARKET_RESEARCH_MODELS.get(step_name, "google")
     recheck_model = _recheck_model_for(step_model)
 
     system_prompt = get_prompt_template("market_step_recheck")
@@ -265,25 +268,9 @@ def _run_market_step_recheck_sync(step_name: str, step_output: dict) -> dict:
         f"inconsistencies.\nReturn ONLY valid JSON."
     )
 
-    if "anthropic" in recheck_model.lower() or "claude" in recheck_model.lower():
-        if not ANTHROPIC_API_KEY:
-            raise ValueError("ANTHROPIC_API_KEY not set for recheck.")
-        client = anthropic_lib.Anthropic(api_key=ANTHROPIC_API_KEY)
-        bare_model = recheck_model.split("/")[-1] if "/" in recheck_model else recheck_model
-        resp = client.messages.create(
-            model=bare_model,
-            max_tokens=4000,
-            system=system_prompt,
-            messages=[{"role": "user", "content": user_prompt}],
-        )
-        raw = ""
-        for block in resp.content:
-            if hasattr(block, "text") and block.text:
-                raw += block.text
-    else:
-        raw = _call_openrouter(system_prompt, user_prompt, recheck_model)
+    json_text, _ = _call_by_model(recheck_model, system_prompt, user_prompt)
 
-    result = _parse_partial_json(raw)
+    result = _parse_partial_json(json_text)
     result.setdefault("confidence", 0.5)
     result.setdefault("flags", [])
     result.setdefault("hallucination_risk", "medium")
@@ -328,7 +315,7 @@ async def run_market_research(
     job_id: str,
     market_name: str,
     region: str = "DACH",
-    scoping_context: dict | None = None,
+    scoping_context: Optional[dict] = None,
 ) -> AsyncGenerator[dict, None]:
     """
     Run the market research pipeline, yielding SSE event dicts.
@@ -348,9 +335,12 @@ async def run_market_research(
     ]
     for sn in step_order:
         model_cfg = MARKET_RESEARCH_MODELS.get(sn, "unknown")
-        display_model = (
-            "claude-opus-4 (Anthropic API)" if model_cfg == "anthropic" else model_cfg
-        )
+        if model_cfg == "anthropic":
+            display_model = "claude-sonnet-4 (Anthropic API)"
+        elif model_cfg == "google":
+            display_model = "gemini-2.5-pro (Google API)"
+        else:
+            display_model = model_cfg
         all_steps.append(DeepResearchStep(
             step_name=sn,
             label=MARKET_STEP_LABELS[sn],
@@ -457,55 +447,50 @@ async def run_market_research(
 
     # ── Steps 1-3: Parallel (sizing, segmentation, competition) ─────────
 
+    # Run Anthropic search steps sequentially to respect rate limits
     batch_1 = [
         ("market_sizing", _run_market_sizing_sync, (market_name, region, scoping_block)),
         ("segmentation", _run_segmentation_sync, (market_name, region, scoping_block)),
         ("competition", _run_competition_sync, (market_name, region, scoping_block)),
     ]
 
-    for sn, _, _ in batch_1:
+    for sn, fn, args in batch_1:
         step = _find(sn)
         yield _make_event(
             sn, "running",
             f"Starting {MARKET_STEP_LABELS[sn]}...",
             model=step.model_used,
         )
-
-    batch_1_events = await asyncio.gather(
-        *[_safe_parallel(sn, fn, args) for sn, fn, args in batch_1],
-        return_exceptions=True,
-    )
-    for evt in batch_1_events:
+        evt = await _safe_parallel(sn, fn, args)
         if isinstance(evt, dict):
             yield evt
         elif isinstance(evt, Exception):
-            logger.error("Unexpected exception in batch 1: %s", evt)
+            logger.error("Unexpected exception in step %s: %s", sn, evt)
+
+    # ── Pause between batches to respect Anthropic rate limits ──────────
+    await asyncio.sleep(15)
 
     # ── Steps 4-6: Parallel (trends, porters, buy_and_build) ─────────────
 
+    # Run batch 2 sequentially too (porters + buy_and_build use Anthropic)
     batch_2 = [
         ("trends_pestel", _run_trends_pestel_sync, (market_name, region, scoping_block)),
         ("porters_value_chain", _run_porters_value_chain_sync, (market_name, region, scoping_block)),
         ("buy_and_build", _run_buy_and_build_sync, (market_name, region, scoping_block)),
     ]
 
-    for sn, _, _ in batch_2:
+    for sn, fn, args in batch_2:
         step = _find(sn)
         yield _make_event(
             sn, "running",
             f"Starting {MARKET_STEP_LABELS[sn]}...",
             model=step.model_used,
         )
-
-    batch_2_events = await asyncio.gather(
-        *[_safe_parallel(sn, fn, args) for sn, fn, args in batch_2],
-        return_exceptions=True,
-    )
-    for evt in batch_2_events:
+        evt = await _safe_parallel(sn, fn, args)
         if isinstance(evt, dict):
             yield evt
         elif isinstance(evt, Exception):
-            logger.error("Unexpected exception in batch 2: %s", evt)
+            logger.error("Unexpected exception in step %s: %s", sn, evt)
 
     # ── Step 7: Merge ───────────────────────────────────────────────────
 

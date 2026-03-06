@@ -2,7 +2,7 @@
 
 **Branch:** `claude/review-progress-5vIvn`
 **Date:** 2026-03-06
-**Status:** Fully functional — Jobs pages fixed with SQLite notes & versions, auth removed for local use.
+**Status:** Fully functional — Gemini provider added, anti-hallucination hardened, jobs pages fixed.
 
 ---
 
@@ -32,7 +32,7 @@ ANTHROPIC_API_KEY=... OPENROUTER_API_KEY=... uvicorn main:app --host 0.0.0.0 --p
 cd frontend && npm install && npm run dev -- -p 3001
 ```
 
-Environment variables: `ANTHROPIC_API_KEY` (required), `OPENROUTER_API_KEY` (required for deep/market/sourcing), `ADMIN_API_KEY` (optional, for prompt editing).
+Environment variables: `GOOGLE_API_KEY` (recommended, cheapest), `ANTHROPIC_API_KEY` (required for deep/market/sourcing web search), `OPENROUTER_API_KEY` (required for deep/market/sourcing), `ADMIN_API_KEY` (optional, for prompt editing).
 
 ---
 
@@ -161,7 +161,7 @@ Routers:
 
 | Service | Purpose |
 |---------|---------|
-| `ai_research.py` | Claude/OpenRouter multi-turn standard research |
+| `ai_research.py` | Google Gemini/Claude/OpenRouter standard research with web search |
 | `deep_research.py` | 7-step deep research pipeline with SSE, parallel steps 2-5 |
 | `market_research.py` | 8-step market study pipeline with SSE, parallel steps 1-3 then 4-6 |
 | `company_sourcing.py` | 4-step company sourcing pipeline with SSE (extract DNA → search → verify → rank) |
@@ -216,30 +216,30 @@ data/
 
 ### Company One-Pager — Deep Research (7 steps)
 
-| Step | Task | Default Model | Provider |
-|------|------|---------------|----------|
-| 1 | IM Extraction | Claude Opus 4 | OpenRouter |
-| 2 | Web Research | Claude Opus 4 | Anthropic (web search) |
-| 3 | Financial Deep-Dive | Claude Opus 4 | Anthropic (web search) |
-| 4 | Management & Org | Claude Opus 4 | Anthropic (web search) |
-| 5 | Market & Competitive | Gemini 2.5 Pro | OpenRouter |
-| 6 | Merge & Synthesize | Claude Opus 4 | OpenRouter |
-| 7 | Cross-Verify | GPT-4.1 | OpenRouter |
+| Step | Task | Default Model | Provider | Cost (input) |
+|------|------|---------------|----------|-------------|
+| 1 | IM Extraction | Gemini 2.5 Pro | Google (native) | $1.25/M |
+| 2 | Web Research | Gemini 2.5 Pro | Google (Search) | $1.25/M |
+| 3 | Financial Deep-Dive | Claude Sonnet 4 | Anthropic (web search) | $3/M |
+| 4 | Management & Org | Gemini 2.5 Pro | Google (Search) | $1.25/M |
+| 5 | Market & Competitive | GPT-5.2 | OpenRouter | $1.75/M |
+| 6 | Merge & Synthesize | GPT-5.2 | OpenRouter | $1.75/M |
+| 7 | Cross-Verify | GPT-5.2 | OpenRouter | $1.75/M |
 
 Steps 2-5 run in parallel. Each step has per-step 2nd AI recheck by a different model family.
 
 ### Market Research (8 steps)
 
-| Step | Task | Default Model | Provider |
-|------|------|---------------|----------|
-| 1 | Market Sizing (TAM/SAM/SOM) | Claude Opus 4 | Anthropic (web search) |
-| 2 | Segmentation | Claude Opus 4 | Anthropic (web search) |
-| 3 | Competitive Landscape | Claude Opus 4 | Anthropic (web search) |
-| 4 | Trends + PESTEL | Gemini 2.5 Pro | OpenRouter |
-| 5 | Sourcing, Multiples & Porter's | Claude Opus 4 | Anthropic (web search) |
-| 6 | Buy & Build Potential | Claude Opus 4 | Anthropic (web search) |
-| 7 | Merge | Claude Opus 4 | OpenRouter |
-| 8 | Cross-Verify | GPT-4.1 | OpenRouter |
+| Step | Task | Default Model | Provider | Cost (input) |
+|------|------|---------------|----------|-------------|
+| 1 | Market Sizing (TAM/SAM/SOM) | Gemini 2.5 Pro | Google (Search) | $1.25/M |
+| 2 | Segmentation | Gemini 2.5 Pro | Google (Search) | $1.25/M |
+| 3 | Competitive Landscape | Gemini 2.5 Pro | Google (Search) | $1.25/M |
+| 4 | Trends + PESTEL | GPT-5.2 | OpenRouter | $1.75/M |
+| 5 | Sourcing, Multiples & Porter's | Claude Sonnet 4 | Anthropic (web search) | $3/M |
+| 6 | Buy & Build Potential | GPT-5.2 | OpenRouter | $1.75/M |
+| 7 | Merge | GPT-5.2 | OpenRouter | $1.75/M |
+| 8 | Cross-Verify | Claude Sonnet 4 | OpenRouter | $3/M |
 
 Steps 1-3 parallel, then steps 4-6 parallel. Per-step recheck on steps 1-6.
 
@@ -252,11 +252,12 @@ Steps 1-3 parallel, then steps 4-6 parallel. Per-step recheck on steps 1-6.
 | 3 | Verify & Enrich | Claude Opus 4 | Anthropic (web search) |
 | 4 | Rank & Synthesize | Claude Opus 4 | Anthropic (web search) |
 
-### Anti-Hallucination (3 layers, all pipelines)
+### Anti-Hallucination (4 layers, all pipelines)
 
-1. **Prompt-level guards** — "never invent data, return null if unknown, prefix inferences with ~, cite sources"
-2. **Per-step 2nd AI recheck** — Each step's output rechecked by a different model family (Claude→GPT, Gemini→Claude, GPT→Claude)
-3. **Final cross-verification** — Algorithmic checks + AI cross-verification on merged result
+1. **Prompt-level guards** — impressum-first research, per-field sourcing requirements, "Where did I read this?" self-check
+2. **Website cross-check** — second AI call visits company impressum/about to verify research (conservative merge: never blanks fields)
+3. **Per-step 2nd AI recheck** — Each step's output rechecked by a different model family (Google→GPT-5.1, Anthropic→GPT-5.1, OpenAI→Sonnet)
+4. **Final cross-verification** — Algorithmic checks + AI cross-verification on merged result
 
 ---
 
@@ -319,36 +320,41 @@ Note: Market PPTX C VII quality upgrade changes are uncommitted on the current b
 
 ---
 
-## Latest Session (2026-03-06): Fix Jobs Pages — SQLite Notes & Versions
+## Latest Session (2026-03-06): Multi-Provider Pipeline + Cost Optimization
 
 ### What was done:
 
-**Backend (`job_store.py`, `routers/jobs.py`):**
-- Added `notes` and `versions` SQLite tables in `init_db()`
-- Added CRUD functions: `list_notes`, `create_note`, `delete_note`, `list_versions`, `create_version`, `get_version`, `restore_version`
-- `save_edited_data()` now auto-creates a version on each save
-- Added 5 new endpoints: `GET/POST /api/jobs/{id}/notes`, `DELETE /api/jobs/{id}/notes/{note_id}`, `GET /api/jobs/{id}/versions`, `POST /api/jobs/{id}/versions/{num}/restore`
+**Multi-provider deep research pipeline (`deep_research.py`, `market_research.py`, `config/models.py`):**
+- Added `_call_google_with_search()` — Google Gemini native API with Search grounding for deep research
+- Added `_call_by_model()` dispatcher — routes to Google/Anthropic/OpenRouter based on model_id config
+- All step functions refactored to use `_call_by_model()` instead of hardcoded provider calls
+- Deep research defaults: Gemini 2.5 Pro (steps 1,2,4), Claude Sonnet 4 (step 3), GPT-5.2 (steps 5,6,7)
+- Market research defaults: Gemini 2.5 Pro (steps 1-3), Claude Sonnet 4 (step 5), GPT-5.2 (steps 4,6,7,8)
+- Recheck models updated: Google/Anthropic → GPT-5.1, OpenAI → Claude Sonnet 4
+- Added GPT-5.x models to known models registry
+- ~80% cost reduction vs previous Opus-heavy config
 
-**Frontend (`api.ts`, `types.ts`):**
-- Added `Note` and `Version` TypeScript interfaces
-- Added 6 API functions: `updateJob`, `listNotes`, `createNote`, `deleteNote`, `listVersions`, `restoreVersion`
+**Cross-check fix (`ai_research.py`):**
+- Fixed `_website_cross_check()` blanking fields — now uses conservative merge (only accepts corrections where corrected version has data, never blanks)
+- Fixed `description` field handling (is `list[str]`, not object with `.short`)
 
-**Frontend fixes (`jobs/[id]/page.tsx`, `NotesPanel.tsx`, `VersionHistory.tsx`):**
-- Removed `useRequireAuth` — no auth required for local use
-- Fixed `job.data` → `job.edited_data || job.research_data` (Job model has no `.data` field)
-- Fixed `generatePptx(data, jobId)` → `generateJobPptx(jobId)`
-- Fixed `result.notes` / `result.versions` → flat arrays (API returns arrays, not wrappers)
-- Removed `note.field_path` reference (not in our Note type)
+**Tested with 4 teasers:**
+- eco-kart GmbH (ACCEL): Revenue/EBITDA/HQ/management all correct, matched human one-pager
+- Projekt BANKS: Revenue/EBITDA/HQ/industry correct, properly left founded/website as n/a
+- Projekt DREAM: Correctly left revenue/EBITDA empty (teaser only says "7-8 figure")
+- The Key Academy GmbH (regression): No hallucinations, cross-check corrected HQ Hamburg→Berlin
 
-**Auth removal:**
-- `middleware.ts` — replaced Supabase auth wall with passthrough
-- `login/page.tsx` — replaced with redirect to `/jobs`
+### Previous session work (also on this branch):
 
-**New API endpoints:**
-```
-GET  /api/jobs/{id}/notes                    → list notes
-POST /api/jobs/{id}/notes                    → create note (body: {content})
-DELETE /api/jobs/{id}/notes/{note_id}         → delete note
-GET  /api/jobs/{id}/versions                 → list versions
-POST /api/jobs/{id}/versions/{num}/restore    → restore to version
-```
+**Google Gemini Provider (`ai_research.py`, `requirements.txt`):**
+- Added `_research_via_google()` for standard research with Google Search grounding
+- Default provider: Google (cheapest, $1.25/1M) → Anthropic → OpenRouter
+- Model fallback chain: `gemini-2.5-pro` → `gemini-2.5-flash`
+
+**Anti-Hallucination Hardening (`prompt_manager.py`, `ai_research.py`):**
+- Impressum-first prompts, per-field sourcing requirements, "Where did I read this?" self-check
+- `_website_cross_check()`: second AI call visits impressum/about to verify research
+
+**Jobs Pages (`job_store.py`, `routers/jobs.py`, frontend):**
+- SQLite notes/versions tables, auto-versioning on save, 5 new endpoints
+- Frontend: auth wall removed, API functions added, component fixes

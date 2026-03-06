@@ -48,7 +48,16 @@ KNOWN_MODELS: dict[str, ModelCapabilities] = {
         long_context=True,
         structured_output=True,
         provider="anthropic",
-        notes="Uses Claude Opus 4 via Anthropic API. Only provider with native web search.",
+        notes="Uses Claude Sonnet 4 via Anthropic API with native web search.",
+    ),
+    # Google native API (Google Search grounding)
+    "google": ModelCapabilities(
+        web_search=True,
+        tool_calling=True,
+        long_context=True,
+        structured_output=True,
+        provider="google",
+        notes="Uses Gemini 2.5 Pro via Google API with Google Search grounding. Cheapest option with web search.",
     ),
     # OpenRouter models
     "anthropic/claude-opus-4": ModelCapabilities(
@@ -75,13 +84,37 @@ KNOWN_MODELS: dict[str, ModelCapabilities] = {
         provider="openrouter",
         notes="Gemini 2.5 Pro via OpenRouter. Strong reasoning, large context. No web search via OpenRouter.",
     ),
+    "openai/gpt-5.2": ModelCapabilities(
+        web_search=False,
+        tool_calling=True,
+        long_context=True,
+        structured_output=True,
+        provider="openrouter",
+        notes="GPT-5.2 via OpenRouter. Strong reasoning, good for synthesis and verification. $1.75/M input.",
+    ),
+    "openai/gpt-5.2-chat": ModelCapabilities(
+        web_search=False,
+        tool_calling=True,
+        long_context=True,
+        structured_output=True,
+        provider="openrouter",
+        notes="GPT-5.2 Chat via OpenRouter. Optimized for conversational tasks. $1.75/M input.",
+    ),
+    "openai/gpt-5.1": ModelCapabilities(
+        web_search=False,
+        tool_calling=True,
+        long_context=True,
+        structured_output=True,
+        provider="openrouter",
+        notes="GPT-5.1 via OpenRouter. Cheapest GPT-5 family model. $1.25/M input.",
+    ),
     "openai/gpt-4.1": ModelCapabilities(
         web_search=False,
         tool_calling=True,
         long_context=True,
         structured_output=True,
         provider="openrouter",
-        notes="GPT-4.1 via OpenRouter. Good for cross-verification (different model family).",
+        notes="GPT-4.1 via OpenRouter. Legacy model, good for cross-verification.",
     ),
     "openai/gpt-4.1-mini": ModelCapabilities(
         web_search=False,
@@ -106,97 +139,97 @@ KNOWN_MODELS: dict[str, ModelCapabilities] = {
 
 DEEP_RESEARCH_STEP_CONFIGS: dict[str, StepModelConfig] = {
     "im_extraction": StepModelConfig(
-        model_id=env("MODEL_IM_EXTRACTION", "anthropic/claude-opus-4"),
+        model_id=env("MODEL_IM_EXTRACTION", "google"),
         requires_web_search=False,
         description="Extract structured data from IM PDF text",
-        why_recommended="Opus 4 has the best document comprehension for extracting complex financial data from PDFs.",
+        why_recommended="Gemini 2.5 Pro: strong document comprehension at $1.25/M input (12x cheaper than Opus).",
     ),
     "web_research": StepModelConfig(
-        model_id="anthropic",
+        model_id=env("MODEL_WEB_RESEARCH", "google"),
         requires_web_search=True,
         description="Web research for company basics (founding, HQ, industry, etc.)",
-        why_recommended="Requires native web search — only available via Anthropic API.",
+        why_recommended="Gemini 2.5 Pro with Google Search grounding: cheapest web search option.",
     ),
     "financials": StepModelConfig(
-        model_id="anthropic",
+        model_id=env("MODEL_FINANCIALS", "anthropic"),
         requires_web_search=True,
         description="Financial deep-dive (Bundesanzeiger, North Data, company filings)",
-        why_recommended="Requires native web search to find public financial filings.",
+        why_recommended="Claude Sonnet 4 with Anthropic web search: reliable for German financial data sources.",
     ),
     "management": StepModelConfig(
-        model_id="anthropic",
+        model_id=env("MODEL_MANAGEMENT", "google"),
         requires_web_search=True,
         description="Management team & org structure research",
-        why_recommended="Requires native web search for LinkedIn, Handelsregister lookups.",
+        why_recommended="Gemini 2.5 Pro with Google Search: effective for impressum/LinkedIn lookups.",
     ),
     "market": StepModelConfig(
-        model_id=env("MODEL_MARKET", "google/gemini-2.5-pro-preview"),
+        model_id=env("MODEL_MARKET", "openai/gpt-5.2"),
         requires_web_search=False,
         description="Market landscape & competitive positioning analysis",
-        why_recommended="Gemini 2.5 Pro has strong reasoning for market analysis. Uses different model family for diversity.",
+        why_recommended="GPT-5.2: strong reasoning for market analysis, different model family for diversity. $1.75/M input.",
     ),
     "merge": StepModelConfig(
-        model_id=env("MODEL_MERGE", "anthropic/claude-opus-4"),
+        model_id=env("MODEL_MERGE", "openai/gpt-5.2"),
         requires_web_search=False,
         description="Merge all sub-results into a single OnePagerData JSON",
-        why_recommended="Opus 4 excels at synthesizing multiple data sources into structured output.",
+        why_recommended="GPT-5.2: excellent at synthesizing structured data. $1.75/M input.",
     ),
     "verify_final": StepModelConfig(
-        model_id=env("MODEL_VERIFY", "openai/gpt-4.1"),
+        model_id=env("MODEL_VERIFY", "openai/gpt-5.2"),
         requires_web_search=False,
         description="Cross-verify merged output for consistency and hallucinations",
-        why_recommended="GPT-4.1 provides independent verification from a different model family.",
+        why_recommended="GPT-5.2: independent verification from OpenAI family. $1.75/M input.",
     ),
 }
 
 MARKET_RESEARCH_STEP_CONFIGS: dict[str, StepModelConfig] = {
     "market_sizing": StepModelConfig(
-        model_id="anthropic",
+        model_id=env("MODEL_MARKET_SIZING", "google"),
         requires_web_search=True,
         description="Research TAM/SAM/SOM, CAGR, and market size data points",
-        why_recommended="Requires web search to find market reports and size estimates.",
+        why_recommended="Gemini 2.5 Pro with Google Search grounding: finds real market data at $1.25/M input.",
     ),
     "segmentation": StepModelConfig(
-        model_id="anthropic",
+        model_id=env("MODEL_MARKET_SEGMENTATION", "google"),
         requires_web_search=True,
         description="Identify market segments, sizes, shares, and growth rates",
-        why_recommended="Requires web search for segment-level data from industry reports.",
+        why_recommended="Gemini 2.5 Pro with Google Search: reliable segment research.",
     ),
     "competition": StepModelConfig(
-        model_id="anthropic",
+        model_id=env("MODEL_MARKET_COMPETITION", "google"),
         requires_web_search=True,
         description="Competitive landscape: top players, HHI, fragmentation, consolidation",
-        why_recommended="Requires web search for competitor data and market share info.",
+        why_recommended="Gemini 2.5 Pro with Google Search: finds real competitor data.",
     ),
     "trends_pestel": StepModelConfig(
-        model_id=env("MODEL_MARKET_TRENDS", "google/gemini-2.5-pro-preview"),
+        model_id=env("MODEL_MARKET_TRENDS", "openai/gpt-5.2"),
         requires_web_search=False,
         description="Market trends, growth drivers, headwinds, and PESTEL analysis",
-        why_recommended="Gemini 2.5 Pro has strong analytical reasoning. Different model family for diversity.",
+        why_recommended="GPT-5.2: strong analytical reasoning for trend analysis. Different model family for diversity.",
     ),
     "porters_value_chain": StepModelConfig(
-        model_id="anthropic",
+        model_id=env("MODEL_MARKET_PORTERS", "anthropic"),
         requires_web_search=True,
-        description="Porter's Five Forces and industry value chain mapping",
-        why_recommended="Requires web search for industry structure data.",
+        description="Sourcing dynamics, PE deal multiples, EBITDA benchmarks, trading comps, Porter's Five Forces, value chain",
+        why_recommended="Claude Sonnet 4 with Anthropic web search: deep M&A/PE knowledge for multiples.",
     ),
     "buy_and_build": StepModelConfig(
-        model_id="anthropic",
-        requires_web_search=True,
+        model_id=env("MODEL_MARKET_BNB", "openai/gpt-5.2"),
+        requires_web_search=False,
         description="Buy & Build potential: fragmentation score, platform candidates, add-on profiles",
-        why_recommended="Requires web search for fragmentation and M&A data.",
+        why_recommended="GPT-5.2: strong M&A analysis capabilities. $1.75/M input.",
     ),
     "merge": StepModelConfig(
-        model_id=env("MODEL_MARKET_MERGE", "anthropic/claude-opus-4"),
+        model_id=env("MODEL_MARKET_MERGE", "openai/gpt-5.2"),
         requires_web_search=False,
         description="Merge all sub-results into a single MarketStudyData JSON",
-        why_recommended="Opus 4 excels at synthesizing research into structured output.",
+        why_recommended="GPT-5.2: excellent at synthesizing structured output. $1.75/M input.",
     ),
     "verify_final": StepModelConfig(
-        model_id=env("MODEL_MARKET_VERIFY", "openai/gpt-4.1"),
+        model_id=env("MODEL_MARKET_VERIFY", "anthropic/claude-sonnet-4"),
         requires_web_search=False,
         description="Cross-verify merged output for consistency and hallucinations",
-        why_recommended="GPT-4.1 provides independent verification from a different model family.",
+        why_recommended="Claude Sonnet 4: independent verification from Anthropic family.",
     ),
 }
 
@@ -331,8 +364,8 @@ MARKET_RESEARCH_MODELS = _DynamicModelDict(get_market_model)
 
 # Per-step recheck: use different model family than the step itself
 RECHECK_MODELS = {
-    "anthropic": "openai/gpt-4.1",
-    "openrouter": "openai/gpt-4.1",
-    "google": "anthropic/claude-sonnet-4",
+    "anthropic": "openai/gpt-5.1",
+    "openrouter": "openai/gpt-5.1",
+    "google": "openai/gpt-5.1",
     "openai": "anthropic/claude-sonnet-4",
 }
