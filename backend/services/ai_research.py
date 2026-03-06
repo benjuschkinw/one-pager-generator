@@ -27,25 +27,16 @@ logger = logging.getLogger(__name__)
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 
-# Default models per provider — Opus for best extraction quality
+# Default models per provider — Opus for accuracy (standard research is a single call,
+# so rate limits are less of a concern than in multi-step pipelines)
 DEFAULT_MODELS = {
     "anthropic": "claude-opus-4-20250514",
     "openrouter": "anthropic/claude-opus-4",
 }
 
-# Authoritative financial/business domains for M&A research
-ALLOWED_DOMAINS = [
-    "bloomberg.com",
-    "reuters.com",
-    "crunchbase.com",
-    "linkedin.com",
-    "macrotrends.net",
-    "finance.yahoo.com",
-    "handelsregister.de",
-    "northdata.de",
-    "unternehmensregister.de",
-    "bundesanzeiger.de",
-]
+# Domain filtering disabled — Anthropic's web search blocks some domains
+# (reuters.com, linkedin.com, etc.) causing 400 errors.
+ALLOWED_DOMAINS = []
 
 
 # Prompts are now managed via prompt_manager.py and editable at runtime.
@@ -108,7 +99,7 @@ def _build_web_search_tool() -> dict:
     tool = {
         "type": "web_search_20250305",
         "name": "web_search",
-        "max_uses": 10,
+        "max_uses": 20,
     }
 
     # Add domain filtering for higher quality results
@@ -172,7 +163,7 @@ def research_company(
     Returns:
         Populated OnePagerData object
     """
-    # Auto-detect provider
+    # Auto-detect provider — prefer Anthropic for web search (critical for accuracy)
     if provider is None:
         if ANTHROPIC_API_KEY:
             provider = "anthropic"
@@ -184,11 +175,15 @@ def research_company(
             )
 
     if provider == "anthropic":
-        return _research_via_anthropic(company_name, im_text, model)
+        data = _research_via_anthropic(company_name, im_text, model)
     elif provider == "openrouter":
-        return _research_via_openrouter(company_name, im_text, model)
+        data = _research_via_openrouter(company_name, im_text, model)
     else:
         raise ValueError(f"Unknown provider: {provider}. Use 'anthropic' or 'openrouter'.")
+
+    # Cross-check key facts against the company's actual website
+    data = _website_cross_check(data, company_name)
+    return data
 
 
 def _research_via_anthropic(
@@ -286,6 +281,121 @@ def _research_via_anthropic(
         )
 
     return data
+
+
+def _website_cross_check(
+    data: OnePagerData,
+    company_name: str,
+) -> OnePagerData:
+    """
+    Cross-check research output against the company's actual website.
+
+    Uses Claude with web search to visit the company website (and impressum/about pages)
+    and correct any factual errors in the research data.
+    """
+    if not ANTHROPIC_API_KEY:
+        return data
+
+    website = data.key_facts.website
+    if not website:
+        logger.info("No website in research data, skipping website cross-check")
+        return data
+
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    data_json = data.model_dump_json(indent=2)
+
+    prompt = f"""You are a fact-checker for M&A research. You have been given research data about "{company_name}".
+
+Your task: Visit the company's website ({website}), their /impressum, /about, /ueber-uns, and /team pages to verify the research data. Then search for the company on the web.
+
+Here is the current research data:
+{data_json}
+
+CHECK THESE SPECIFIC FACTS against what you find on their actual website:
+1. **Company name** — exact legal entity name (check impressum)
+2. **Website URL** — is it correct? Does it resolve?
+3. **Founded year** — when was the company actually founded?
+4. **HQ / Address** — check impressum for registered address
+5. **Management** — who are the actual Geschäftsführer/managing directors? (check impressum)
+6. **Industry / Niche** — what does the company ACTUALLY do? Match their self-description.
+7. **Description** — does it match what the company says about itself?
+8. **Product portfolio** — what products/services do they actually list?
+9. **Employees** — any team page or indication of size?
+10. **Tagline** — does it accurately describe the business?
+
+IMPORTANT RULES:
+- Only correct fields where you find CONCRETE evidence of an error
+- If the website confirms the data, keep it as-is
+- If you find the data is wrong, replace it with what the website says
+- If the website doesn't mention something, keep the original (don't delete data)
+- For management: the impressum Geschäftsführer are the ground truth
+
+Return the COMPLETE corrected JSON object (same schema as input). If you made corrections, that's fine. If everything checks out, return the data unchanged.
+Return ONLY the JSON, no commentary."""
+
+    try:
+        logger.info("Website cross-check for %s against %s", company_name, website)
+
+        messages = [{"role": "user", "content": prompt}]
+        web_search_tool = _build_web_search_tool()
+        response = None
+
+        for turn in range(10):
+            response = client.messages.create(
+                model="claude-sonnet-4-20250514",  # Sonnet is fine for fact-checking
+                max_tokens=8000,
+                system="You are a meticulous fact-checker. Visit the company website and verify every claim. Return corrected JSON.",
+                messages=messages,
+                tools=[web_search_tool],
+            )
+
+            if response.stop_reason == "end_turn":
+                break
+            elif response.stop_reason == "pause_turn":
+                messages.append({"role": "assistant", "content": response.content})
+                messages.append({"role": "user", "content": "Please continue."})
+            elif response.stop_reason == "tool_use":
+                messages.append({"role": "assistant", "content": response.content})
+                tool_results = []
+                for block in response.content:
+                    if block.type == "tool_use":
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": block.id,
+                            "content": "Search completed. Please continue.",
+                        })
+                if tool_results:
+                    messages.append({"role": "user", "content": tool_results})
+            else:
+                break
+
+        if response is None:
+            return data
+
+        json_text = _extract_json_from_response(response)
+        corrected = _parse_response_json(json_text, company_name)
+
+        # Log what changed
+        changes = []
+        if corrected.key_facts.website != data.key_facts.website:
+            changes.append(f"website: {data.key_facts.website} -> {corrected.key_facts.website}")
+        if corrected.key_facts.founded != data.key_facts.founded:
+            changes.append(f"founded: {data.key_facts.founded} -> {corrected.key_facts.founded}")
+        if corrected.key_facts.management != data.key_facts.management:
+            changes.append(f"management changed")
+        if corrected.header.tagline != data.header.tagline:
+            changes.append(f"tagline changed")
+
+        if changes:
+            logger.info("Website cross-check corrected %d fields: %s", len(changes), "; ".join(changes))
+        else:
+            logger.info("Website cross-check found no corrections needed")
+
+        return corrected
+
+    except Exception as e:
+        logger.error("Website cross-check failed: %s", str(e))
+        return data
 
 
 def _research_via_openrouter(

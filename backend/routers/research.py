@@ -6,7 +6,7 @@ from typing import Optional
 from fastapi import APIRouter, File, Form, UploadFile, HTTPException
 
 from models.one_pager import ResearchResponse
-from services.ai_research import research_company
+from services.ai_research import research_company, ANTHROPIC_API_KEY
 from services.job_store import (
     UPLOADS_DIR,
     create_job,
@@ -113,7 +113,7 @@ async def research(
     verification = None
     if verify:
         try:
-            research_provider = provider or "anthropic"
+            research_provider = provider or ("anthropic" if ANTHROPIC_API_KEY else "openrouter")
             verification = verify_research(
                 data,
                 company_name,
