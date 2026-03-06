@@ -1,9 +1,10 @@
 """
-AI Research Pipeline: uses Claude API or OpenRouter to research a company
-and fill the One-Pager data schema.
+AI Research Pipeline: uses Claude API, Google Gemini, or OpenRouter to research
+a company and fill the One-Pager data schema.
 
 Supports:
 - Anthropic provider: Claude with web search + domain filtering
+- Google provider: Gemini with Google Search grounding (cheapest option)
 - OpenRouter provider: Any model via OpenAI-compatible API (no web search)
 - PDF extraction from Information Memorandums
 - Multi-turn tool use with pause_turn handling (Anthropic only)
@@ -26,13 +27,22 @@ logger = logging.getLogger(__name__)
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "")
 
-# Default models per provider — Opus for accuracy (standard research is a single call,
-# so rate limits are less of a concern than in multi-step pipelines)
+# Default models per provider
 DEFAULT_MODELS = {
     "anthropic": "claude-opus-4-20250514",
     "openrouter": "anthropic/claude-opus-4",
+    "google": "gemini-2.5-pro",
 }
+
+# Fallback models for Google (in order of preference)
+# Note: gemini-3.1-pro-preview is a thinking model that truncates JSON output,
+# so we default to 2.5-pro which produces reliable structured output.
+_GOOGLE_FALLBACK_MODELS = [
+    "gemini-2.5-pro",
+    "gemini-2.5-flash",
+]
 
 # Domain filtering disabled — Anthropic's web search blocks some domains
 # (reuters.com, linkedin.com, etc.) causing 400 errors.
@@ -113,6 +123,19 @@ def get_available_providers() -> list[dict]:
     """Return list of configured providers with their available models."""
     providers = []
 
+    if GOOGLE_API_KEY:
+        providers.append({
+            "id": "google",
+            "name": "Google (Gemini)",
+            "has_web_search": True,
+            "default_model": DEFAULT_MODELS["google"],
+            "models": [
+                {"id": "gemini-3.1-pro-preview", "name": "Gemini 3.1 Pro (Recommended)"},
+                {"id": "gemini-2.5-pro", "name": "Gemini 2.5 Pro"},
+                {"id": "gemini-2.5-flash", "name": "Gemini 2.5 Flash (Fastest)"},
+            ],
+        })
+
     if ANTHROPIC_API_KEY:
         providers.append({
             "id": "anthropic",
@@ -120,7 +143,7 @@ def get_available_providers() -> list[dict]:
             "has_web_search": True,
             "default_model": DEFAULT_MODELS["anthropic"],
             "models": [
-                {"id": "claude-opus-4-20250514", "name": "Claude Opus 4 (Recommended)"},
+                {"id": "claude-opus-4-20250514", "name": "Claude Opus 4"},
                 {"id": "claude-sonnet-4-20250514", "name": "Claude Sonnet 4"},
                 {"id": "claude-haiku-4-20250514", "name": "Claude Haiku 4"},
             ],
@@ -163,23 +186,27 @@ def research_company(
     Returns:
         Populated OnePagerData object
     """
-    # Auto-detect provider — prefer Anthropic for web search (critical for accuracy)
+    # Auto-detect provider — prefer Google (cheapest + web search), then Anthropic, then OpenRouter
     if provider is None:
-        if ANTHROPIC_API_KEY:
+        if GOOGLE_API_KEY:
+            provider = "google"
+        elif ANTHROPIC_API_KEY:
             provider = "anthropic"
         elif OPENROUTER_API_KEY:
             provider = "openrouter"
         else:
             raise ValueError(
-                "No API key configured. Set ANTHROPIC_API_KEY or OPENROUTER_API_KEY."
+                "No API key configured. Set GOOGLE_API_KEY, ANTHROPIC_API_KEY, or OPENROUTER_API_KEY."
             )
 
-    if provider == "anthropic":
+    if provider == "google":
+        data = _research_via_google(company_name, im_text, model)
+    elif provider == "anthropic":
         data = _research_via_anthropic(company_name, im_text, model)
     elif provider == "openrouter":
         data = _research_via_openrouter(company_name, im_text, model)
     else:
-        raise ValueError(f"Unknown provider: {provider}. Use 'anthropic' or 'openrouter'.")
+        raise ValueError(f"Unknown provider: {provider}. Use 'google', 'anthropic', or 'openrouter'.")
 
     # Cross-check key facts against the company's actual website
     data = _website_cross_check(data, company_name)
@@ -281,6 +308,78 @@ def _research_via_anthropic(
         )
 
     return data
+
+
+def _research_via_google(
+    company_name: str,
+    im_text: Optional[str],
+    model: Optional[str],
+) -> OnePagerData:
+    """Research using Google Gemini API with Google Search grounding."""
+    if not GOOGLE_API_KEY:
+        raise ValueError("GOOGLE_API_KEY not set.")
+
+    from google import genai
+    from google.genai import types
+
+    # Try requested model, then fallbacks
+    resolved_model = model or DEFAULT_MODELS["google"]
+    models_to_try = [resolved_model] if model else _GOOGLE_FALLBACK_MODELS
+
+    client = genai.Client(api_key=GOOGLE_API_KEY)
+
+    system_prompt = get_prompt_template("research_system")
+    user_prompt = _build_user_prompt(company_name, im_text)
+
+    last_error = None
+    for try_model in models_to_try:
+        try:
+            logger.info("Researching %s via google/%s", company_name, try_model)
+
+            response = client.models.generate_content(
+                model=try_model,
+                contents=user_prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_prompt,
+                    tools=[types.Tool(google_search=types.GoogleSearch())],
+                    max_output_tokens=16000,
+                    temperature=0.2,
+                ),
+            )
+
+            # Extract text from all parts (Gemini 3.1 has thought_signature parts)
+            text_parts = []
+            if response.candidates and response.candidates[0].content:
+                for part in response.candidates[0].content.parts:
+                    if hasattr(part, "text") and part.text:
+                        text_parts.append(part.text)
+            raw_text = "\n".join(text_parts)
+            logger.info(
+                "Google response: model=%s, length=%d chars",
+                try_model, len(raw_text),
+            )
+
+            json_text = _extract_json_from_text(raw_text)
+            data = _parse_response_json(json_text, company_name)
+
+            if not data.header.company_name:
+                data.header.company_name = company_name
+
+            return data
+
+        except Exception as e:
+            last_error = e
+            error_str = str(e)
+            if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
+                logger.warning("Google model %s rate-limited, trying next fallback", try_model)
+                continue
+            elif "404" in error_str or "NOT_FOUND" in error_str:
+                logger.warning("Google model %s not found, trying next fallback", try_model)
+                continue
+            else:
+                raise
+
+    raise RuntimeError(f"All Google models failed. Last error: {last_error}")
 
 
 def _website_cross_check(
