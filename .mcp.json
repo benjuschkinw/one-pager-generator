@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "tka-mongo": {
+      "command": "python3",
+      "args": ["mcp-mongo/server.py"],
+      "env": {
+        "MONGO_URI": "mongodb+srv://catja-ro:d1xBk6hepbJKQ9WH@thekey-academy-lms-prod.tyk6k.mongodb.net/thekey-academy?retryWrites=true&w=majority&appName=thekey-academy-lms-production&authSource=admin"
+      }
+    }
+  }
+}
