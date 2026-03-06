@@ -160,6 +160,23 @@ export interface Job {
   edited_sourcing_data: CompanySourcingResult | null;
 }
 
+export interface Note {
+  id: string;
+  job_id: string;
+  content: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Version {
+  id: string;
+  job_id: string;
+  version_number: number;
+  change_summary: string;
+  created_at: string;
+  data: OnePagerData;
+}
+
 export interface PromptDefinition {
   name: string;
   description: string;

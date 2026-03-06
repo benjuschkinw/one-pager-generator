@@ -2,7 +2,7 @@
  * API client for the One-Pager Generator backend.
  */
 
-import { OnePagerData, MarketStudyData, MarketScopingContext, ResearchResponse, PromptDefinition, JobSummary, Job, DeepResearchSSEEvent, CompanySourcingResult, StepModelInfo, ModelCapabilities } from "./types";
+import { OnePagerData, MarketStudyData, MarketScopingContext, ResearchResponse, PromptDefinition, JobSummary, Job, DeepResearchSSEEvent, CompanySourcingResult, StepModelInfo, ModelCapabilities, Note, Version } from "./types";
 
 const API_BASE = "/api";
 
@@ -117,6 +117,13 @@ export async function saveJobData(id: string, data: OnePagerData): Promise<void>
   if (!res.ok) {
     throw new Error("Failed to save job data");
   }
+}
+
+/**
+ * Alias for saveJobData — used by job detail page.
+ */
+export async function updateJob(id: string, updates: { data: OnePagerData }): Promise<void> {
+  return saveJobData(id, updates.data);
 }
 
 /**
@@ -557,6 +564,66 @@ export async function saveSourcingData(id: string, data: CompanySourcingResult):
     body: JSON.stringify({ data }),
   });
   if (!res.ok) throw new Error("Failed to save sourcing data");
+}
+
+// ---------------------------------------------------------------------------
+// Notes
+// ---------------------------------------------------------------------------
+
+/**
+ * List all notes for a job.
+ */
+export async function listNotes(id: string): Promise<Note[]> {
+  const res = await fetch(`${API_BASE}/jobs/${id}/notes`);
+  if (!res.ok) throw new Error("Failed to fetch notes");
+  return res.json();
+}
+
+/**
+ * Create a note for a job.
+ */
+export async function createNote(id: string, body: { content: string }): Promise<Note> {
+  const res = await fetch(`${API_BASE}/jobs/${id}/notes`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error("Failed to create note");
+  return res.json();
+}
+
+/**
+ * Delete a note.
+ */
+export async function deleteNote(jobId: string, noteId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/jobs/${jobId}/notes/${noteId}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error("Failed to delete note");
+}
+
+// ---------------------------------------------------------------------------
+// Versions
+// ---------------------------------------------------------------------------
+
+/**
+ * List all versions for a job.
+ */
+export async function listVersions(id: string): Promise<Version[]> {
+  const res = await fetch(`${API_BASE}/jobs/${id}/versions`);
+  if (!res.ok) throw new Error("Failed to fetch versions");
+  return res.json();
+}
+
+/**
+ * Restore a job to a specific version.
+ */
+export async function restoreVersion(jobId: string, versionNumber: number): Promise<Job> {
+  const res = await fetch(`${API_BASE}/jobs/${jobId}/versions/${versionNumber}/restore`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error("Failed to restore version");
+  return res.json();
 }
 
 // ---------------------------------------------------------------------------

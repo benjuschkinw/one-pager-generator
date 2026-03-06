@@ -2,7 +2,7 @@
 
 **Branch:** `claude/review-progress-5vIvn`
 **Date:** 2026-03-06
-**Status:** Fully functional — Market Study PPTX closely matches human C VII quality with remaining visual polish gaps documented below.
+**Status:** Fully functional — Jobs pages fixed with SQLite notes & versions, auth removed for local use.
 
 ---
 
@@ -134,6 +134,11 @@ Routers:
 ├── GET  /api/jobs/{id}/pptx        → file download (PPTX)
 ├── POST /api/jobs/{id}/research/deep    → SSE deep research (7 steps)
 ├── POST /api/jobs/{id}/sourcing         → SSE company sourcing (4 steps)
+├── GET  /api/jobs/{id}/notes            → list notes
+├── POST /api/jobs/{id}/notes            → create note
+├── DEL  /api/jobs/{id}/notes/{nid}      → delete note
+├── GET  /api/jobs/{id}/versions         → list versions
+├── POST /api/jobs/{id}/versions/{n}/restore → restore version
 │
 ├── POST /api/market-research       → market_research.py (8-step SSE)
 ├── PUT  /api/jobs/{id}/market-data → save edited market data
@@ -311,3 +316,39 @@ a48de62 Phase A: Add persistent job storage (backend + frontend foundation)
 ```
 
 Note: Market PPTX C VII quality upgrade changes are uncommitted on the current branch.
+
+---
+
+## Latest Session (2026-03-06): Fix Jobs Pages — SQLite Notes & Versions
+
+### What was done:
+
+**Backend (`job_store.py`, `routers/jobs.py`):**
+- Added `notes` and `versions` SQLite tables in `init_db()`
+- Added CRUD functions: `list_notes`, `create_note`, `delete_note`, `list_versions`, `create_version`, `get_version`, `restore_version`
+- `save_edited_data()` now auto-creates a version on each save
+- Added 5 new endpoints: `GET/POST /api/jobs/{id}/notes`, `DELETE /api/jobs/{id}/notes/{note_id}`, `GET /api/jobs/{id}/versions`, `POST /api/jobs/{id}/versions/{num}/restore`
+
+**Frontend (`api.ts`, `types.ts`):**
+- Added `Note` and `Version` TypeScript interfaces
+- Added 6 API functions: `updateJob`, `listNotes`, `createNote`, `deleteNote`, `listVersions`, `restoreVersion`
+
+**Frontend fixes (`jobs/[id]/page.tsx`, `NotesPanel.tsx`, `VersionHistory.tsx`):**
+- Removed `useRequireAuth` — no auth required for local use
+- Fixed `job.data` → `job.edited_data || job.research_data` (Job model has no `.data` field)
+- Fixed `generatePptx(data, jobId)` → `generateJobPptx(jobId)`
+- Fixed `result.notes` / `result.versions` → flat arrays (API returns arrays, not wrappers)
+- Removed `note.field_path` reference (not in our Note type)
+
+**Auth removal:**
+- `middleware.ts` — replaced Supabase auth wall with passthrough
+- `login/page.tsx` — replaced with redirect to `/jobs`
+
+**New API endpoints:**
+```
+GET  /api/jobs/{id}/notes                    → list notes
+POST /api/jobs/{id}/notes                    → create note (body: {content})
+DELETE /api/jobs/{id}/notes/{note_id}         → delete note
+GET  /api/jobs/{id}/versions                 → list versions
+POST /api/jobs/{id}/versions/{num}/restore    → restore to version
+```

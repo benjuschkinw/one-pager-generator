@@ -25,6 +25,11 @@ from services.job_store import (
     save_edited_sourcing_data,
     save_pptx_path,
     update_job,
+    list_notes,
+    create_note as store_create_note,
+    delete_note as store_delete_note,
+    list_versions,
+    restore_version,
 )
 from services.market_pptx_generator import generate_market_study
 from services.pptx_generator import generate_one_pager
@@ -46,6 +51,11 @@ class EditMarketDataRequest(BaseModel):
 class EditSourcingDataRequest(BaseModel):
     """Request body for saving edited CompanySourcingResult."""
     data: CompanySourcingResult
+
+
+class CreateNoteRequest(BaseModel):
+    """Request body for creating a note."""
+    content: str
 
 
 def _sanitize_filename(name: str) -> str:
@@ -324,3 +334,64 @@ async def api_save_edited_sourcing_data(job_id: str, request: EditSourcingDataRe
     if updated is None:
         raise HTTPException(500, "Failed to save sourcing data")
     return updated
+
+
+# ---------------------------------------------------------------------------
+# Notes endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.get("/jobs/{job_id}/notes")
+async def api_list_notes(job_id: str):
+    """List all notes for a job."""
+    job = await get_job(job_id)
+    if job is None:
+        raise HTTPException(404, "Job not found")
+    notes = await list_notes(job_id)
+    return notes
+
+
+@router.post("/jobs/{job_id}/notes")
+async def api_create_note(job_id: str, request: CreateNoteRequest):
+    """Create a new note for a job."""
+    job = await get_job(job_id)
+    if job is None:
+        raise HTTPException(404, "Job not found")
+    note = await store_create_note(job_id, request.content)
+    return note
+
+
+@router.delete("/jobs/{job_id}/notes/{note_id}")
+async def api_delete_note(job_id: str, note_id: str):
+    """Delete a note."""
+    deleted = await store_delete_note(job_id, note_id)
+    if not deleted:
+        raise HTTPException(404, "Note not found")
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Version history endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.get("/jobs/{job_id}/versions")
+async def api_list_versions(job_id: str):
+    """List all versions for a job."""
+    job = await get_job(job_id)
+    if job is None:
+        raise HTTPException(404, "Job not found")
+    versions = await list_versions(job_id)
+    return versions
+
+
+@router.post("/jobs/{job_id}/versions/{version_number}/restore", response_model=Job)
+async def api_restore_version(job_id: str, version_number: int):
+    """Restore a job to a specific version."""
+    job = await get_job(job_id)
+    if job is None:
+        raise HTTPException(404, "Job not found")
+    restored = await restore_version(job_id, version_number)
+    if restored is None:
+        raise HTTPException(404, "Version not found")
+    return restored
