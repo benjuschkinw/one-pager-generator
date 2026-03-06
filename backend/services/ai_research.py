@@ -31,8 +31,8 @@ GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "")
 
 # Default models per provider
 DEFAULT_MODELS = {
-    "anthropic": "claude-opus-4-20250514",
-    "openrouter": "anthropic/claude-opus-4",
+    "anthropic": "claude-sonnet-4-20250514",
+    "openrouter": "openai/gpt-5.4",
     "google": "gemini-2.5-pro",
 }
 
@@ -156,12 +156,12 @@ def get_available_providers() -> list[dict]:
             "has_web_search": False,
             "default_model": DEFAULT_MODELS["openrouter"],
             "models": [
-                {"id": "anthropic/claude-opus-4", "name": "Claude Opus 4 (Recommended)"},
+                {"id": "openai/gpt-5.4", "name": "GPT-5.4 (Recommended)"},
+                {"id": "openai/gpt-5.2", "name": "GPT-5.2"},
+                {"id": "openai/o3", "name": "o3 (Reasoning)"},
+                {"id": "anthropic/claude-opus-4", "name": "Claude Opus 4"},
                 {"id": "anthropic/claude-sonnet-4", "name": "Claude Sonnet 4"},
-                {"id": "openai/gpt-4o", "name": "GPT-4o"},
-                {"id": "openai/gpt-4.1", "name": "GPT-4.1"},
                 {"id": "google/gemini-2.5-pro-preview", "name": "Gemini 2.5 Pro"},
-                {"id": "deepseek/deepseek-r1", "name": "DeepSeek R1"},
             ],
         })
 
